@@ -1,3 +1,4 @@
+// Package service предоставляет бизнес-логику сокращения URL.
 package service
 
 import (
@@ -6,28 +7,28 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/Apat1chn1y/go-url-shortener.git/internal/repository"
+	"github.com/Apat1chn1y/go-url-shortener.git/internal/storage"
 )
 
-const idLength = 8 // длина короткого идентификатора
+// idLength — длина генерируемого короткого идентификатора.
+const idLength = 8
 
-// бизнес-логика сокращения URL
-type ShortenerService struct {
-	repo repository.URLRepository
+// Shortener реализует бизнес-логику сокращения URL.
+type Shortener struct {
+	storage storage.Storage
 }
 
-// создаёт новый сервис с указанным репозиторием
-func NewShortenerService(repo repository.URLRepository) *ShortenerService {
-	return &ShortenerService{repo: repo}
+// NewShortener создаёт новый сервис сокращения URL с указанным хранилищем.
+func NewShortener(storage storage.Storage) *Shortener {
+	return &Shortener{storage: storage}
 }
 
-// генерирует случайный строковый идентификатор заданной длины
+// generateID генерирует случайный строковый идентификатор длины idLength.
 func generateID() (string, error) {
 	bytes := make([]byte, idLength)
 	if _, err := rand.Read(bytes); err != nil {
 		return "", err
 	}
-
 	id := base64.URLEncoding.EncodeToString(bytes)
 	id = strings.TrimRight(id, "=")
 	if len(id) > idLength {
@@ -36,33 +37,33 @@ func generateID() (string, error) {
 	return id, nil
 }
 
-// создаёт короткий URL для переданного оригинального
-func (s *ShortenerService) CreateShortURL(originalURL string, baseURL string) (string, error) {
+// Create создаёт короткий URL для переданного оригинального.
+// Возвращает полный короткий URL (baseURL + id) или ошибку.
+func (s *Shortener) Create(originalURL, baseURL string) (string, error) {
 	if originalURL == "" {
 		return "", errors.New("empty URL")
 	}
-
 	for attempts := 0; attempts < 10; attempts++ {
 		id, err := generateID()
 		if err != nil {
 			return "", err
 		}
-
-		if _, err := s.repo.Find(id); err == repository.ErrNotFound {
-
-			if err := s.repo.Save(id, originalURL); err != nil {
-				return "", err
-			}
+		err = s.storage.Save(id, originalURL)
+		if err == nil {
 			return baseURL + id, nil
+		}
+		if !errors.Is(err, storage.ErrAlreadyExists) {
+			return "", err
 		}
 	}
 	return "", errors.New("failed to generate unique ID")
 }
 
-// возвращает оригинальный URL по короткому идентификатору
-func (s *ShortenerService) GetOriginalURL(id string) (string, error) {
+// Get возвращает оригинальный URL по короткому идентификатору.
+// Возвращает ошибку, если идентификатор пуст или не найден.
+func (s *Shortener) Get(id string) (string, error) {
 	if id == "" {
 		return "", errors.New("empty id")
 	}
-	return s.repo.Find(id)
+	return s.storage.Load(id)
 }

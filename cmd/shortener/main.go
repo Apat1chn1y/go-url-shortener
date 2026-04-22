@@ -1,31 +1,33 @@
+// Package main - точка входа в сервис сокращения URL.
 package main
 
 import (
 	"log"
-	"net/http"
 
 	"github.com/Apat1chn1y/go-url-shortener.git/internal/config"
-	"github.com/Apat1chn1y/go-url-shortener.git/internal/handler"
-	"github.com/Apat1chn1y/go-url-shortener.git/internal/repository"
+	"github.com/Apat1chn1y/go-url-shortener.git/internal/handlers"
+	"github.com/Apat1chn1y/go-url-shortener.git/internal/server"
 	"github.com/Apat1chn1y/go-url-shortener.git/internal/service"
+	"github.com/Apat1chn1y/go-url-shortener.git/internal/storage"
 )
 
 func main() {
-	// инициализация конфигурации
+	// Загрузка конфигурации из переменных окружения.
 	cfg := config.NewConfig()
 
-	// инициализация репозитория (хранения в памяти)
-	repo := repository.NewInMemoryRepository()
+	// Инициализация хранилища in-memory.
+	store := storage.NewInMemoryStorage()
 
-	// инициализация сервиса
-	shortenerService := service.NewShortenerService(repo)
+	// Инициализация сервиса бизнес-логики.
+	shortener := service.NewShortener(store)
 
-	// инициализация HTTP-обработчика
-	h := handler.NewHandler(shortenerService, cfg.BaseURL)
+	// Инициализация HTTP-обработчика.
+	handler := handlers.NewShortenHandler(shortener, cfg.BaseURL)
 
-	// запуск сервера
+	// Создание и запуск HTTP-сервера.
+	srv := server.New(cfg.ServerAddress, handler)
 	log.Printf("Starting server on %s", cfg.ServerAddress)
-	if err := http.ListenAndServe(cfg.ServerAddress, h); err != nil {
-		log.Fatal("Server failed: ", err)
+	if err := srv.Run(); err != nil {
+		log.Fatal(err)
 	}
 }
