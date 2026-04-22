@@ -17,8 +17,13 @@ type Server struct {
 // Выполняет настройку маршрутов: POST / и GET /{id}.
 func New(addr string, handler *handlers.ShortenHandler) *Server {
 	mux := http.NewServeMux()
+	// регистрация конкретных разрешённых маршрутов
 	mux.HandleFunc("POST /", handler.Create)
 	mux.HandleFunc("GET /{id}", handler.Redirect)
+	// регистрация общего обработчика для всех остальных запросов
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "Bad Request", http.StatusBadRequest)
+	})
 
 	return &Server{
 		httpServer: &http.Server{
