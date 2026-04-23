@@ -42,6 +42,7 @@ func TestShortenHandler_Create(t *testing.T) {
 		expectedStatus int
 		expectedBody   string
 		checkBody      func(t *testing.T, body string)
+		checkHeaders   func(t *testing.T, headers http.Header)
 	}{
 		{
 			name:        "success",
@@ -57,6 +58,9 @@ func TestShortenHandler_Create(t *testing.T) {
 			checkBody: func(t *testing.T, body string) {
 				assert.Contains(t, body, "http://localhost:8080/")
 				assert.Greater(t, len(body), len("http://localhost:8080/"))
+			},
+			checkHeaders: func(t *testing.T, headers http.Header) {
+				assert.Equal(t, "text/plain", headers.Get("Content-Type"))
 			},
 		},
 		{
@@ -115,6 +119,9 @@ func TestShortenHandler_Create(t *testing.T) {
 			}
 			if tt.checkBody != nil {
 				tt.checkBody(t, rr.Body.String())
+			}
+			if tt.checkHeaders != nil {
+				tt.checkHeaders(t, rr.Header())
 			}
 		})
 	}
