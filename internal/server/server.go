@@ -1,10 +1,11 @@
-// Package server предоставляет HTTP-сервер с маршрутизацией.
+// Package server предоставляет HTTP-сервер с маршрутизацией на базе chi.
 package server
 
 import (
 	"net/http"
 
 	"github.com/Apat1chn1y/go-url-shortener.git/internal/handlers"
+	"github.com/go-chi/chi/v5"
 )
 
 // Server представляет HTTP-сервер для сервиса сокращения URL.
@@ -14,28 +15,30 @@ type Server struct {
 }
 
 // New создаёт новый экземпляр Server с заданным адресом и обработчиком.
-// Выполняет настройку маршрутов: POST / и GET /{id}.
+// Использует chi.Router для маршрутизации: POST / и GET /{id}.
 func New(addr string, handler *handlers.ShortenHandler) *Server {
-	mux := http.NewServeMux()
-	// регистрация конкретных разрешённых маршрутов
-	mux.HandleFunc("POST /", handler.Create)
-	mux.HandleFunc("GET /{id}", handler.Redirect)
-	// регистрация общего обработчика для всех остальных запросов
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+	r := chi.NewRouter()
+	// Регистрируем единственные разрешённые маршруты
+	r.Post("/", handler.Create)
+	r.Get("/{id}", handler.Redirect)
+	// Перехват всех остальных запросов (неправильный метод, путь, отсутствие id)
+	r.NotFound(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "Bad Request", http.StatusBadRequest)
+	})
+	r.MethodNotAllowed(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Bad Request", http.StatusBadRequest)
 	})
 
 	return &Server{
 		httpServer: &http.Server{
 			Addr:    addr,
-			Handler: mux,
+			Handler: r,
 		},
 		handler: handler,
 	}
 }
 
 // Run запускает HTTP-сервер и начинает обрабатывать запросы.
-// Блокирует выполнение до остановки сервера или возникновения ошибки.
 func (s *Server) Run() error {
 	return s.httpServer.ListenAndServe()
 }
