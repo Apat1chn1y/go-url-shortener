@@ -1,4 +1,3 @@
-// Package main - точка входа в сервис сокращения URL.
 package main
 
 import (
@@ -12,6 +11,7 @@ import (
 )
 
 func main() {
+
 	// Загрузка конфигурации из переменных окружения.
 	cfg := config.NewConfig()
 
@@ -20,12 +20,14 @@ func main() {
 
 	// Инициализация сервиса бизнес-логики.
 	shortener := service.NewShortener(store)
-
 	// Инициализация HTTP-обработчика.
 	handler := handlers.NewShortenHandler(shortener, cfg.BaseURL)
 
+	// Создание роутера
+	router := handlers.NewRouter(handler)
+
 	// Создание и запуск HTTP-сервера.
-	srv := server.New(cfg.ServerAddress, handler)
+	srv := server.New(cfg.ServerAddress, router)
 	log.Printf("Starting server on %s", cfg.ServerAddress)
 	if err := srv.Run(); err != nil {
 		log.Fatal(err)

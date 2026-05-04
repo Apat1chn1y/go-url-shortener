@@ -25,11 +25,11 @@ func NewShortener(storage storage.Storage) *Shortener {
 
 // generateID генерирует случайный строковый идентификатор длины idLength.
 func generateID() (string, error) {
-	bytes := make([]byte, idLength)
-	if _, err := rand.Read(bytes); err != nil {
+	buf := make([]byte, idLength)
+	if _, err := rand.Read(buf); err != nil {
 		return "", err
 	}
-	id := base64.URLEncoding.EncodeToString(bytes)
+	id := base64.URLEncoding.EncodeToString(buf)
 	id = strings.TrimRight(id, "=")
 	if len(id) > idLength {
 		id = id[:idLength]

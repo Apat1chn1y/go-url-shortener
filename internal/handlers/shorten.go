@@ -5,18 +5,22 @@ import (
 	"io"
 	"net/http"
 	"strings"
-
-	"github.com/Apat1chn1y/go-url-shortener.git/internal/service"
 )
+
+// URLShortener определяет контракт бизнес-логики, необходимый обработчикам.
+type URLShortener interface {
+	Create(originalURL, baseURL string) (string, error)
+	Get(id string) (string, error)
+}
 
 // ShortenHandler привязывает HTTP-запросы к сервису сокращения URL.
 type ShortenHandler struct {
-	shortener *service.Shortener
+	shortener URLShortener
 	baseURL   string
 }
 
-// NewShortenHandler создаёт новый обработчик для сокращения URL.
-func NewShortenHandler(shortener *service.Shortener, baseURL string) *ShortenHandler {
+// NewShortenHandler создаёт новый обработчик с заданным сервисом и базовым URL.
+func NewShortenHandler(shortener URLShortener, baseURL string) *ShortenHandler {
 	return &ShortenHandler{
 		shortener: shortener,
 		baseURL:   baseURL,
