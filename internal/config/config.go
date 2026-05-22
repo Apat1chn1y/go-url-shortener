@@ -1,4 +1,5 @@
-// Package config предоставляет настройки сервера из командной строки, окружения и .env файла.
+// Package config предоставляет настройки сервера из переменных окружения, аргументов командной строки и .env файла.
+// Приоритет: переменная окружения > флаг командной строки > значение по умолчанию.
 package config
 
 import (
@@ -16,35 +17,40 @@ type Config struct {
 	BaseURL       string // базовый URL для формирования коротких ссылок
 }
 
-// NewConfig загружает конфигурацию в следующем порядке:
-// 1. Аргументы командной строки (-a, -b)
-// 2. Переменные окружения (SERVER_ADDRESS, BASE_URL)
-// 3. Файл .env
-// 4. Значения по умолчанию
+// NewConfig загружает конфигурацию в следующем порядке приоритета:
+//  1. Переменные окружения (SERVER_ADDRESS, BASE_URL)
+//  2. Аргументы командной строки (-a, -b)
+//  3. Значения по умолчанию
+//  4. Если BaseURL всё ещё не задан, он автоматически формируется из ServerAddress.
 //
-// Если BaseURL не задан явно, он формируется автоматически из ServerAddress
-// (например, ":8080" -> "http://localhost:8080/", "localhost:43147" -> "http://localhost:43147/").
+// Примеры:
+//
+//	export SERVER_ADDRESS=:9090 -> ServerAddress=":9090"
+//	go run . -a :8888            -> ServerAddress=":8888" (если нет SERVER_ADDRESS)
+//	без параметров               -> ServerAddress=":8080", BaseURL="http://localhost:8080/"
 func NewConfig() *Config {
-	// Загрузка .env файла (не критична, если файла нет)
+	// Загрузка .env (если файл существует) – значения не перезаписывают уже установленные переменные окружения
 	if err := godotenv.Load(); err != nil {
-		log.Println("No .env file found, using system env or defaults")
+		log.Println("No .env file found, using env or defaults")
 	}
 
 	// Определяем флаги командной строки
-	var serverAddr, baseURL string
-	flag.StringVar(&serverAddr, "a", "", "адрес запуска HTTP-сервера (например, localhost:8888)")
-	flag.StringVar(&baseURL, "b", "", "базовый адрес результирующего сокращённого URL (например, http://localhost:8888/)")
+	var flagServerAddr, flagBaseURL string
+	flag.StringVar(&flagServerAddr, "a", "", "адрес запуска HTTP-сервера (например, localhost:8888)")
+	flag.StringVar(&flagBaseURL, "b", "", "базовый адрес результирующего сокращённого URL (например, http://localhost:8888/)")
 	flag.Parse()
 
+	serverAddr := os.Getenv("SERVER_ADDRESS")
 	if serverAddr == "" {
-		serverAddr = os.Getenv("SERVER_ADDRESS")
+		serverAddr = flagServerAddr
 	}
 	if serverAddr == "" {
 		serverAddr = ":8080"
 	}
 
+	baseURL := os.Getenv("BASE_URL")
 	if baseURL == "" {
-		baseURL = os.Getenv("BASE_URL")
+		baseURL = flagBaseURL
 	}
 	if baseURL == "" {
 		baseURL = autoBaseURL(serverAddr)
@@ -60,20 +66,17 @@ func NewConfig() *Config {
 	}
 }
 
-// autoBaseURL автоматически создаёт базовый URL из адреса сервера.
+// autoBaseURL преобразует адрес сервера в HTTP-URL.
 // Примеры:
 //
-//	":8080" → "http://localhost:8080"
+//	":8080"      → "http://localhost:8080"
 //	"localhost:43147" → "http://localhost:43147"
-//	"127.0.0.1:8080" → "http://127.0.0.1:8080"
-//	"0.0.0.0:8080" → "http://0.0.0.0:8080"
+//	"127.0.0.1:9090"  → "http://127.0.0.1:9090"
 func autoBaseURL(addr string) string {
 	host := strings.TrimPrefix(addr, "http://")
 	host = strings.TrimPrefix(host, "https://")
-
 	if strings.HasPrefix(host, ":") {
 		host = "localhost" + host
 	}
-
 	return "http://" + host
 }
