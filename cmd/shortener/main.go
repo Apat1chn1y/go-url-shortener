@@ -1,35 +1,36 @@
 package main
 
 import (
-	"log"
+	"os"
 
 	"github.com/Apat1chn1y/go-url-shortener.git/internal/config"
 	"github.com/Apat1chn1y/go-url-shortener.git/internal/handlers"
 	"github.com/Apat1chn1y/go-url-shortener.git/internal/server"
 	"github.com/Apat1chn1y/go-url-shortener.git/internal/service"
 	"github.com/Apat1chn1y/go-url-shortener.git/internal/storage"
+	"github.com/rs/zerolog"
 )
 
 func main() {
+	// Настройка логгера: вывод в stdout в формате JSON (без ConsoleWriter, чтобы избежать паники)
+	logger := zerolog.New(os.Stdout).Level(zerolog.InfoLevel).With().Timestamp().Logger()
 
 	// Загрузка конфигурации из переменных окружения.
 	cfg := config.NewConfig()
-
 	// Инициализация хранилища in-memory.
 	store := storage.NewInMemoryStorage()
-
 	// Инициализация сервиса бизнес-логики.
 	shortener := service.NewShortener(store)
 	// Инициализация HTTP-обработчика.
 	handler := handlers.NewShortenHandler(shortener, cfg.BaseURL)
 
 	// Создание роутера
-	router := handlers.NewRouter(handler)
-
+	router := handlers.NewRouter(handler, logger)
 	// Создание и запуск HTTP-сервера.
 	srv := server.New(cfg.ServerAddress, router)
-	log.Printf("Starting server on %s", cfg.ServerAddress)
+
+	logger.Info().Str("address", cfg.ServerAddress).Msg("Starting server")
 	if err := srv.Run(); err != nil {
-		log.Fatal(err)
+		logger.Fatal().Err(err).Msg("Server failed")
 	}
 }

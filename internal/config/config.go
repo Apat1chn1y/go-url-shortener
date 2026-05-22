@@ -4,7 +4,6 @@ package config
 
 import (
 	"flag"
-	"log"
 	"os"
 	"strings"
 
@@ -30,9 +29,7 @@ type Config struct {
 //	без параметров               -> ServerAddress=":8080", BaseURL="http://localhost:8080/"
 func NewConfig() *Config {
 	// Загрузка .env (если файл существует) – значения не перезаписывают уже установленные переменные окружения
-	if err := godotenv.Load(); err != nil {
-		log.Println("No .env file found, using env or defaults")
-	}
+	_ = godotenv.Load() // игнорируем ошибку отсутствия файла
 
 	// Определяем флаги командной строки
 	var flagServerAddr, flagBaseURL string
