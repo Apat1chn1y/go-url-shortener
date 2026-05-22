@@ -18,6 +18,7 @@ func NewRouter(h *ShortenHandler, logger zerolog.Logger) http.Handler {
 	// Регистрируем единственные разрешённые маршруты
 	r.Post("/", h.Create)
 	r.Get("/{id}", h.Redirect)
+	r.Post("/api/shorten", h.HandleShortenJSON)
 
 	// Перехват всех остальных запросов (неправильный метод, путь, отсутствие id)
 	r.NotFound(func(w http.ResponseWriter, r *http.Request) {

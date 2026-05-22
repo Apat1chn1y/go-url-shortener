@@ -2,10 +2,13 @@ package handlers
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 
 	"github.com/Apat1chn1y/go-url-shortener.git/internal/service"
 	"github.com/Apat1chn1y/go-url-shortener.git/internal/storage"
@@ -182,6 +185,110 @@ func TestShortenHandler_Redirect(t *testing.T) {
 				assert.Equal(t, tt.expectedHeader, rr.Header().Get("Location"))
 			} else {
 				assert.Empty(t, rr.Header().Get("Location"))
+			}
+		})
+	}
+}
+
+// TestShortenHandler_HandleShortenJSON тестирует JSON-эндпоинт POST /api/shorten.
+func TestShortenHandler_HandleShortenJSON(t *testing.T) {
+	tests := []struct {
+		name           string
+		contentType    string
+		body           string
+		saveFunc       func(id, url string) error
+		expectedStatus int
+		expectedBody   string
+		checkHeaders   func(t *testing.T, headers http.Header)
+	}{
+		{
+			name:        "success",
+			contentType: "application/json",
+			body:        `{"url":"https://ya.ru"}`,
+			saveFunc: func(id, url string) error {
+				if id == "" || url != "https://ya.ru" {
+					return errors.New("unexpected args")
+				}
+				return nil
+			},
+			expectedStatus: http.StatusCreated,
+			checkHeaders: func(t *testing.T, headers http.Header) {
+				assert.Equal(t, "application/json", headers.Get("Content-Type"))
+			},
+			// тело ответа проверяем отдельно
+		},
+		{
+			name:           "wrong content-type",
+			contentType:    "text/plain",
+			body:           `{"url":"https://ya.ru"}`,
+			saveFunc:       nil,
+			expectedStatus: http.StatusBadRequest,
+			expectedBody:   "Bad Request: Content-Type must be application/json\n",
+		},
+		{
+			name:           "invalid JSON",
+			contentType:    "application/json",
+			body:           `{"url"`,
+			saveFunc:       nil,
+			expectedStatus: http.StatusBadRequest,
+			expectedBody:   "Bad Request: invalid JSON\n",
+		},
+		{
+			name:           "empty url field",
+			contentType:    "application/json",
+			body:           `{"url":""}`,
+			saveFunc:       nil,
+			expectedStatus: http.StatusBadRequest,
+			expectedBody:   "Bad Request: url field is empty\n",
+		},
+		{
+			name:        "storage collision",
+			contentType: "application/json",
+			body:        `{"url":"https://example.com"}`,
+			saveFunc: func(id, url string) error {
+				return storage.ErrAlreadyExists
+			},
+			expectedStatus: http.StatusBadRequest,
+			expectedBody:   "Bad Request: failed to generate unique ID\n",
+		},
+		{
+			name:        "storage other error",
+			contentType: "application/json",
+			body:        `{"url":"https://example.com"}`,
+			saveFunc: func(id, url string) error {
+				return errors.New("database connection lost")
+			},
+			expectedStatus: http.StatusBadRequest,
+			expectedBody:   "Bad Request: database connection lost\n",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockStore := &mockStorage{saveFunc: tt.saveFunc}
+			shortener := service.NewShortener(mockStore)
+			handler := NewShortenHandler(shortener, "http://localhost:8080/")
+
+			req := httptest.NewRequest(http.MethodPost, "/api/shorten", bytes.NewBufferString(tt.body))
+			req.Header.Set("Content-Type", tt.contentType)
+			rr := httptest.NewRecorder()
+
+			handler.HandleShortenJSON(rr, req)
+
+			assert.Equal(t, tt.expectedStatus, rr.Code)
+			if tt.expectedBody != "" {
+				assert.Equal(t, tt.expectedBody, rr.Body.String())
+			}
+			if tt.checkHeaders != nil {
+				tt.checkHeaders(t, rr.Header())
+			}
+			// Для успешного случая проверяем структуру JSON
+			if tt.expectedStatus == http.StatusCreated {
+				var resp shortenResponse
+				err := json.NewDecoder(rr.Body).Decode(&resp)
+				require.NoError(t, err)
+				assert.Contains(t, resp.Result, "http://localhost:8080/")
+				assert.NotEmpty(t, resp.Result)
 			}
 		})
 	}
