@@ -12,6 +12,8 @@ import (
 // Принимает подготовленный обработчик ShortenHandler и возвращает http.Handler.
 func NewRouter(h *ShortenHandler, logger zerolog.Logger) http.Handler {
 	r := chi.NewRouter()
+	// Подключаем сжатие
+	r.Use(GzipMiddleware)
 	// Подключает логгирование
 	r.Use(LoggingMiddleware(logger))
 
