@@ -18,7 +18,12 @@ func main() {
 	// Загрузка конфигурации из переменных окружения.
 	cfg := config.NewConfig()
 	// Инициализация хранилища in-memory.
-	store := storage.NewInMemoryStorage()
+	// store := storage.NewInMemoryStorage()
+	// Инициализация файлового хранилища.
+	store, err := storage.NewFileStorage(cfg.FileStoragePath)
+	if err != nil {
+		logger.Fatal().Err(err).Str("path", cfg.FileStoragePath).Msg("Cannot initialize file storage")
+	}
 	// Инициализация сервиса бизнес-логики.
 	shortener := service.NewShortener(store)
 	// Инициализация HTTP-обработчика.

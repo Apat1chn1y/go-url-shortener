@@ -12,8 +12,9 @@ import (
 
 // Config хранит параметры запуска сервиса.
 type Config struct {
-	ServerAddress string // адрес и порт для запуска HTTP-сервера
-	BaseURL       string // базовый URL для формирования коротких ссылок
+	ServerAddress   string // адрес и порт для запуска HTTP-сервера
+	BaseURL         string // базовый URL для формирования коротких ссылок
+	FileStoragePath string // путь к файлу для хранения данных
 }
 
 // NewConfig загружает конфигурацию в следующем порядке приоритета:
@@ -32,9 +33,10 @@ func NewConfig() *Config {
 	_ = godotenv.Load() // игнорируем ошибку отсутствия файла
 
 	// Определяем флаги командной строки
-	var flagServerAddr, flagBaseURL string
+	var flagServerAddr, flagBaseURL, flagFile string
 	flag.StringVar(&flagServerAddr, "a", "", "адрес запуска HTTP-сервера (например, localhost:8888)")
 	flag.StringVar(&flagBaseURL, "b", "", "базовый адрес результирующего сокращённого URL (например, http://localhost:8888/)")
+	flag.StringVar(&flagFile, "f", "", "путь к файлу хранения данных")
 	flag.Parse()
 
 	serverAddr := os.Getenv("SERVER_ADDRESS")
@@ -57,9 +59,18 @@ func NewConfig() *Config {
 		baseURL += "/"
 	}
 
+	filePath := os.Getenv("FILE_STORAGE_PATH")
+	if filePath == "" {
+		filePath = flagFile
+	}
+	if filePath == "" {
+		filePath = "storage.json" // значение по умолчанию
+	}
+
 	return &Config{
-		ServerAddress: serverAddr,
-		BaseURL:       baseURL,
+		ServerAddress:   serverAddr,
+		BaseURL:         baseURL,
+		FileStoragePath: filePath,
 	}
 }
 
