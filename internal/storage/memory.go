@@ -2,12 +2,8 @@
 package storage
 
 import (
-	"errors"
 	"sync"
 )
-
-// ErrAlreadyExists возвращается при попытке сохранить уже существующий ID.
-var ErrAlreadyExists = errors.New("ID already exists")
 
 // InMemoryStorage реализует Storage с использованием map и мьютекса.
 type InMemoryStorage struct {

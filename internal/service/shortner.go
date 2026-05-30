@@ -10,6 +10,11 @@ import (
 	"github.com/Apat1chn1y/go-url-shortener.git/internal/storage"
 )
 
+var (
+	ErrEmptyURL            = errors.New("empty URL")
+	ErrMaxAttemptsExceeded = errors.New("failed to generate unique ID after 10 attempts")
+)
+
 // idLength — длина генерируемого короткого идентификатора.
 const idLength = 8
 
@@ -41,7 +46,7 @@ func generateID() (string, error) {
 // Возвращает полный короткий URL (baseURL + id) или ошибку.
 func (s *Shortener) Create(originalURL, baseURL string) (string, error) {
 	if originalURL == "" {
-		return "", errors.New("empty URL")
+		return "", ErrEmptyURL
 	}
 	for attempts := 0; attempts < 10; attempts++ {
 		id, err := generateID()
@@ -52,11 +57,12 @@ func (s *Shortener) Create(originalURL, baseURL string) (string, error) {
 		if err == nil {
 			return baseURL + id, nil
 		}
-		if !errors.Is(err, storage.ErrAlreadyExists) {
-			return "", err
+		if errors.Is(err, storage.ErrAlreadyExists) {
+			continue
 		}
+		return "", err
 	}
-	return "", errors.New("failed to generate unique ID")
+	return "", ErrMaxAttemptsExceeded
 }
 
 // Get возвращает оригинальный URL по короткому идентификатору.

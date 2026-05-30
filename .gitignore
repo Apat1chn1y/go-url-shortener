@@ -25,3 +25,4 @@ vendor/
 
 # Test client
 cmd/client/*
+**/storage.json

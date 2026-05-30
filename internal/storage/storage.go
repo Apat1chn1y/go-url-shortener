@@ -6,6 +6,9 @@ import "errors"
 // ErrNotFound возвращается, если запрошенный URL не найден в хранилище.
 var ErrNotFound = errors.New("URL not found")
 
+// ErrAlreadyExists возвращается при попытке сохранить уже существующий ID.
+var ErrAlreadyExists = errors.New("ID already exists")
+
 // Storage определяет контракт для хранилища коротких URL.
 type Storage interface {
 	// Save сохраняет пару идентификатор-оригинальный URL.
