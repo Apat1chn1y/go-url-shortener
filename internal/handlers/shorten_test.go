@@ -90,7 +90,7 @@ func TestShortenHandler_Create(t *testing.T) {
 				return storage.ErrAlreadyExists
 			},
 			expectedStatus: http.StatusBadRequest,
-			expectedBody:   "Bad Request: failed to generate unique ID\n",
+			expectedBody:   "Bad Request: failed to generate unique ID after 10 attempts\n",
 		},
 		{
 			name:        "storage other error",
@@ -99,8 +99,8 @@ func TestShortenHandler_Create(t *testing.T) {
 			saveFunc: func(id, url string) error {
 				return errors.New("database connection lost")
 			},
-			expectedStatus: http.StatusBadRequest,
-			expectedBody:   "Bad Request: database connection lost\n",
+			expectedStatus: http.StatusInternalServerError,
+			expectedBody:   "Internal Server Error\n",
 		},
 	}
 
@@ -249,7 +249,7 @@ func TestShortenHandler_HandleShortenJSON(t *testing.T) {
 				return storage.ErrAlreadyExists
 			},
 			expectedStatus: http.StatusBadRequest,
-			expectedBody:   "Bad Request: failed to generate unique ID\n",
+			expectedBody:   "Bad Request: failed to generate unique ID after 10 attempts\n",
 		},
 		{
 			name:        "storage other error",
@@ -258,8 +258,18 @@ func TestShortenHandler_HandleShortenJSON(t *testing.T) {
 			saveFunc: func(id, url string) error {
 				return errors.New("database connection lost")
 			},
-			expectedStatus: http.StatusBadRequest,
-			expectedBody:   "Bad Request: database connection lost\n",
+			expectedStatus: http.StatusInternalServerError, // было 400
+			expectedBody:   "Internal Server Error\n",
+		},
+		{
+			name:           "content-type with charset",
+			contentType:    "application/json; charset=utf-8",
+			body:           `{"url":"https://ya.ru"}`,
+			saveFunc:       func(id, url string) error { return nil },
+			expectedStatus: http.StatusCreated,
+			checkHeaders: func(t *testing.T, headers http.Header) {
+				assert.Equal(t, "application/json", headers.Get("Content-Type"))
+			},
 		},
 	}
 

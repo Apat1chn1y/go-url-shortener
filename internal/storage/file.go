@@ -4,11 +4,15 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"path/filepath"
 	"sync"
+
+	"github.com/google/uuid"
 )
 
-// fileStorageEntry представляет одну запись в JSON-файле.
+// fileStorageEntry представляет одну запись в JSON-файле согласно спецификации.
 type fileStorageEntry struct {
+	UUID        string `json:"uuid"`
 	ShortURL    string `json:"short_url"`
 	OriginalURL string `json:"original_url"`
 }
@@ -57,28 +61,44 @@ func (fs *FileStorage) load() error {
 }
 
 // save записывает текущую карту в файл.
-// Вызывается только когда mu уже заблокирована на чтение или запись.
+// Вызывается внутри Save под mu.Lock().
 func (fs *FileStorage) save() error {
+
 	entries := make([]fileStorageEntry, 0, len(fs.data))
 	for shortURL, originalURL := range fs.data {
 		entries = append(entries, fileStorageEntry{
+			UUID:        uuid.New().String(),
 			ShortURL:    shortURL,
 			OriginalURL: originalURL,
 		})
 	}
 
-	file, err := os.Create(fs.filePath)
+	dir := filepath.Dir(fs.filePath)
+	tmpFile, err := os.CreateTemp(dir, "storage.*.tmp")
 	if err != nil {
 		return err
 	}
-	defer file.Close()
+	tmpName := tmpFile.Name()
+	defer os.Remove(tmpName)
 
-	encoder := json.NewEncoder(file)
+	encoder := json.NewEncoder(tmpFile)
 	encoder.SetIndent("", "  ")
-	return encoder.Encode(entries)
+	if err := encoder.Encode(entries); err != nil {
+		tmpFile.Close()
+		return err
+	}
+	if err := tmpFile.Sync(); err != nil {
+		tmpFile.Close()
+		return err
+	}
+	if err := tmpFile.Close(); err != nil {
+		return err
+	}
+
+	return os.Rename(tmpName, fs.filePath)
 }
 
-// Save сохраняет пару id->originalURL в памяти и синхронно в файл.
+// Save сохраняет пару id->originalURL.
 func (fs *FileStorage) Save(id, originalURL string) error {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
@@ -86,7 +106,6 @@ func (fs *FileStorage) Save(id, originalURL string) error {
 		return ErrAlreadyExists
 	}
 	fs.data[id] = originalURL
-
 	return fs.save()
 }
 
