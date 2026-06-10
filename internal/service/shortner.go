@@ -28,6 +28,11 @@ func NewShortener(storage storage.Storage) *Shortener {
 	return &Shortener{storage: storage}
 }
 
+// Ping проверяет доступность хранилища.
+func (s *Shortener) Ping() error {
+	return s.storage.Ping()
+}
+
 // generateID генерирует случайный строковый идентификатор длины idLength.
 func generateID() (string, error) {
 	buf := make([]byte, idLength)

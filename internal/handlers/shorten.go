@@ -16,12 +16,23 @@ import (
 type URLShortener interface {
 	Create(originalURL, baseURL string) (string, error)
 	Get(id string) (string, error)
+	Ping() error
 }
 
 // ShortenHandler привязывает HTTP-запросы к сервису сокращения URL.
 type ShortenHandler struct {
 	shortener URLShortener
 	baseURL   string
+}
+
+// Ping обрабатывает GET /ping – проверяет соединение с хранилищем.
+// Если хранилище отвечает успешно – статус 200, иначе 500.
+func (h *ShortenHandler) Ping(w http.ResponseWriter, r *http.Request) {
+	if err := h.shortener.Ping(); err != nil {
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
 }
 
 // NewShortenHandler создаёт новый обработчик с заданным сервисом и базовым URL.

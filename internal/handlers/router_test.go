@@ -23,6 +23,10 @@ type mockShortener struct {
 	getFunc    func(id string) (string, error)
 }
 
+func (m *mockShortener) Ping() error {
+	return nil
+}
+
 func (m *mockShortener) Create(originalURL, baseURL string) (string, error) {
 	if m.createFunc != nil {
 		return m.createFunc(originalURL, baseURL)

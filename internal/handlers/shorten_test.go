@@ -19,6 +19,14 @@ import (
 type mockStorage struct {
 	saveFunc func(id, originalURL string) error
 	loadFunc func(id string) (string, error)
+	pingFunc func() error
+}
+
+func (m *mockStorage) Ping() error {
+	if m.pingFunc != nil {
+		return m.pingFunc()
+	}
+	return nil // по умолчанию успех
 }
 
 func (m *mockStorage) Save(id, originalURL string) error {
@@ -302,4 +310,33 @@ func TestShortenHandler_HandleShortenJSON(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestShortenHandler_Ping(t *testing.T) {
+	mockStore := &mockStorage{
+		pingFunc: func() error { return nil },
+	}
+	shortener := service.NewShortener(mockStore)
+	handler := NewShortenHandler(shortener, "http://localhost:8080/")
+
+	req := httptest.NewRequest(http.MethodGet, "/ping", nil)
+	rr := httptest.NewRecorder()
+	handler.Ping(rr, req)
+
+	assert.Equal(t, http.StatusOK, rr.Code)
+}
+
+func TestShortenHandler_Ping_Error(t *testing.T) {
+	mockStore := &mockStorage{
+		pingFunc: func() error { return errors.New("db down") },
+	}
+	shortener := service.NewShortener(mockStore)
+	handler := NewShortenHandler(shortener, "http://localhost:8080/")
+
+	req := httptest.NewRequest(http.MethodGet, "/ping", nil)
+	rr := httptest.NewRecorder()
+	handler.Ping(rr, req)
+
+	assert.Equal(t, http.StatusInternalServerError, rr.Code)
+	assert.Contains(t, rr.Body.String(), "Internal Server Error")
 }

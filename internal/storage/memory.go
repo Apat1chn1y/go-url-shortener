@@ -18,6 +18,10 @@ func NewInMemoryStorage() *InMemoryStorage {
 	}
 }
 
+func (s *InMemoryStorage) Ping() error {
+	return nil
+}
+
 // Save сохраняет пару id -> originalURL.
 // Возвращает ErrAlreadyExists, если id уже занят.
 func (s *InMemoryStorage) Save(id, originalURL string) error {

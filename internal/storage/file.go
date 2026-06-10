@@ -38,6 +38,12 @@ func NewFileStorage(filePath string) (*FileStorage, error) {
 	return fs, nil
 }
 
+func (fs *FileStorage) Ping() error {
+	// Проверяем, можем ли открыть файл на чтение
+	_, err := os.Open(fs.filePath)
+	return err
+}
+
 // load читает данные из JSON-файла и заполняет карту.
 func (fs *FileStorage) load() error {
 	file, err := os.Open(fs.filePath)

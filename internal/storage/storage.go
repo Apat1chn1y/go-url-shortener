@@ -18,4 +18,6 @@ type Storage interface {
 	// Load возвращает оригинальный URL по идентификатору.
 	// Возвращает ErrNotFound, если идентификатор отсутствует.
 	Load(id string) (string, error)
+
+	Ping() error
 }

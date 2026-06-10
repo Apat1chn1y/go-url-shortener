@@ -14,16 +14,32 @@ import (
 func main() {
 	// Настройка логгера: вывод в stdout в формате JSON (без ConsoleWriter, чтобы избежать паники)
 	logger := zerolog.New(os.Stdout).Level(zerolog.InfoLevel).With().Timestamp().Logger()
-
 	// Загрузка конфигурации из переменных окружения.
 	cfg := config.NewConfig()
+
 	// Инициализация хранилища in-memory.
 	// store := storage.NewInMemoryStorage()
-	// Инициализация файлового хранилища.
-	store, err := storage.NewFileStorage(cfg.FileStoragePath)
-	if err != nil {
-		logger.Fatal().Err(err).Str("path", cfg.FileStoragePath).Msg("Cannot initialize file storage")
+
+	var store storage.Storage
+	var err error
+
+	if cfg.DatabaseDSN != "" {
+		// Инициализация pg хранилища.
+		store, err = storage.NewPostgresStorage(cfg.DatabaseDSN)
+		if err != nil {
+			logger.Fatal().Err(err).Str("dsn", cfg.DatabaseDSN).Msg("Cannot connect to database")
+		}
+		defer store.(*storage.PostgresStorage).Close()
+		logger.Info().Msg("Using PostgreSQL storage")
+	} else {
+		// Инициализация файлового хранилища.
+		store, err = storage.NewFileStorage(cfg.FileStoragePath)
+		if err != nil {
+			logger.Fatal().Err(err).Str("path", cfg.FileStoragePath).Msg("Cannot initialize file storage")
+		}
+		logger.Info().Msg("Using file storage")
 	}
+
 	// Инициализация сервиса бизнес-логики.
 	shortener := service.NewShortener(store)
 	// Инициализация HTTP-обработчика.
