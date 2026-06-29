@@ -13,6 +13,7 @@ import (
 var (
 	ErrEmptyURL            = errors.New("empty URL")
 	ErrMaxAttemptsExceeded = errors.New("failed to generate unique ID after 10 attempts")
+	ErrEmptyOriginalURL    = errors.New("empty original_url in batch")
 )
 
 // idLength — длина генерируемого короткого идентификатора.
@@ -31,6 +32,63 @@ func NewShortener(storage storage.Storage) *Shortener {
 // Ping проверяет доступность хранилища.
 func (s *Shortener) Ping() error {
 	return s.storage.Ping()
+}
+
+// BatchItem представляет входной элемент батча.
+type BatchItem struct {
+	CorrelationID string `json:"correlation_id"`
+	OriginalURL   string `json:"original_url"`
+}
+
+// BatchResult представляет выходной элемент батча.
+type BatchResult struct {
+	CorrelationID string `json:"correlation_id"`
+	ShortURL      string `json:"short_url"`
+}
+
+// CreateBatch создаёт короткие URL для множества оригинальных.
+// Возвращает срез результатов с correlation_id и полными short_url.
+func (s *Shortener) CreateBatch(items []BatchItem, baseURL string) ([]BatchResult, error) {
+	if len(items) == 0 {
+		return nil, errors.New("empty batch")
+	}
+
+	urls := make(map[string]string) // id -> originalURL
+	results := make([]BatchResult, 0, len(items))
+	correlationMap := make(map[string]string) // id -> correlationID
+
+	for _, item := range items {
+		if item.OriginalURL == "" {
+			return nil, ErrEmptyOriginalURL
+		}
+		// Генерируем ID (до 10 попыток)
+		var id string
+		var err error
+		for attempts := 0; attempts < 10; attempts++ {
+			id, err = generateID()
+			if err != nil {
+				return nil, err
+			}
+			break
+		}
+		urls[id] = item.OriginalURL
+		correlationMap[id] = item.CorrelationID
+	}
+
+	// Сохраняем все записи атомарно
+	if err := s.storage.SaveBatch(urls); err != nil {
+		return nil, err
+	}
+
+	// Формируем ответ
+	for id, originalURL := range urls {
+		_ = originalURL // не используется
+		results = append(results, BatchResult{
+			CorrelationID: correlationMap[id],
+			ShortURL:      baseURL + id,
+		})
+	}
+	return results, nil
 }
 
 // generateID генерирует случайный строковый идентификатор длины idLength.

@@ -17,9 +17,17 @@ import (
 
 // mockStorage реализует storage.Storage для тестирования хендлеров.
 type mockStorage struct {
-	saveFunc func(id, originalURL string) error
-	loadFunc func(id string) (string, error)
-	pingFunc func() error
+	saveFunc      func(id, originalURL string) error
+	loadFunc      func(id string) (string, error)
+	pingFunc      func() error
+	saveBatchFunc func(urls map[string]string) error
+}
+
+func (m *mockStorage) SaveBatch(urls map[string]string) error {
+	if m.saveBatchFunc != nil {
+		return m.saveBatchFunc(urls)
+	}
+	return nil
 }
 
 func (m *mockStorage) Ping() error {
@@ -27,6 +35,95 @@ func (m *mockStorage) Ping() error {
 		return m.pingFunc()
 	}
 	return nil // по умолчанию успех
+}
+
+func TestShortenHandler_HandleBatchShorten(t *testing.T) {
+	tests := []struct {
+		name           string
+		contentType    string
+		body           string
+		saveBatchFunc  func(urls map[string]string) error
+		expectedStatus int
+		expectedBody   string
+		checkResponse  func(t *testing.T, body string)
+	}{
+		{
+			name:           "success",
+			contentType:    "application/json",
+			body:           `[{"correlation_id":"1","original_url":"https://ya.ru"},{"correlation_id":"2","original_url":"https://google.com"}]`,
+			saveBatchFunc:  func(urls map[string]string) error { return nil },
+			expectedStatus: http.StatusCreated,
+			checkResponse: func(t *testing.T, body string) {
+				var resp []struct {
+					CorrelationID string `json:"correlation_id"`
+					ShortURL      string `json:"short_url"`
+				}
+				err := json.Unmarshal([]byte(body), &resp)
+				require.NoError(t, err)
+				assert.Len(t, resp, 2)
+				assert.Equal(t, "1", resp[0].CorrelationID)
+				assert.Contains(t, resp[0].ShortURL, "http://localhost:8080/")
+			},
+		},
+		{
+			name:           "empty batch",
+			contentType:    "application/json",
+			body:           `[]`,
+			saveBatchFunc:  nil,
+			expectedStatus: http.StatusBadRequest,
+			expectedBody:   "Bad Request: empty batch\n",
+		},
+		{
+			name:           "invalid JSON",
+			contentType:    "application/json",
+			body:           `[{"correlation_id":`,
+			saveBatchFunc:  nil,
+			expectedStatus: http.StatusBadRequest,
+			expectedBody:   "Bad Request: invalid JSON\n",
+		},
+		{
+			name:           "missing original_url",
+			contentType:    "application/json",
+			body:           `[{"correlation_id":"1","original_url":""}]`,
+			saveBatchFunc:  nil,
+			expectedStatus: http.StatusBadRequest,
+			expectedBody:   "Bad Request: empty original_url in batch\n",
+		},
+		{
+			name:        "storage error",
+			contentType: "application/json",
+			body:        `[{"correlation_id":"1","original_url":"https://ya.ru"}]`,
+			saveBatchFunc: func(urls map[string]string) error {
+				return storage.ErrAlreadyExists // симулируем конфликт
+			},
+			expectedStatus: http.StatusBadRequest,
+			expectedBody:   "Bad Request: ID already exists\n",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockStore := &mockStorage{
+				saveBatchFunc: tt.saveBatchFunc,
+			}
+			shortener := service.NewShortener(mockStore)
+			handler := NewShortenHandler(shortener, "http://localhost:8080/")
+
+			req := httptest.NewRequest(http.MethodPost, "/api/shorten/batch", bytes.NewBufferString(tt.body))
+			req.Header.Set("Content-Type", tt.contentType)
+			rr := httptest.NewRecorder()
+
+			handler.HandleBatchShorten(rr, req)
+
+			assert.Equal(t, tt.expectedStatus, rr.Code)
+			if tt.expectedBody != "" {
+				assert.Equal(t, tt.expectedBody, rr.Body.String())
+			}
+			if tt.checkResponse != nil {
+				tt.checkResponse(t, rr.Body.String())
+			}
+		})
+	}
 }
 
 func (m *mockStorage) Save(id, originalURL string) error {

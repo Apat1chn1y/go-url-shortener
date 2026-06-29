@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/Apat1chn1y/go-url-shortener.git/internal/handlers"
+	"github.com/Apat1chn1y/go-url-shortener.git/internal/service"
 	"github.com/Apat1chn1y/go-url-shortener.git/internal/storage"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
@@ -25,6 +26,17 @@ type mockShortener struct {
 
 func (m *mockShortener) Ping() error {
 	return nil
+}
+
+func (m *mockShortener) CreateBatch(items []service.BatchItem, baseURL string) ([]service.BatchResult, error) {
+	results := make([]service.BatchResult, len(items))
+	for i, item := range items {
+		results[i] = service.BatchResult{
+			CorrelationID: item.CorrelationID,
+			ShortURL:      baseURL + "batch" + string(rune(i+'0')),
+		}
+	}
+	return results, nil
 }
 
 func (m *mockShortener) Create(originalURL, baseURL string) (string, error) {

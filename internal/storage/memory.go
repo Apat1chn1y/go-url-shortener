@@ -22,6 +22,18 @@ func (s *InMemoryStorage) Ping() error {
 	return nil
 }
 
+func (s *InMemoryStorage) SaveBatch(urls map[string]string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for id, originalURL := range urls {
+		if _, exists := s.data[id]; exists {
+			return ErrAlreadyExists
+		}
+		s.data[id] = originalURL
+	}
+	return nil
+}
+
 // Save сохраняет пару id -> originalURL.
 // Возвращает ErrAlreadyExists, если id уже занят.
 func (s *InMemoryStorage) Save(id, originalURL string) error {

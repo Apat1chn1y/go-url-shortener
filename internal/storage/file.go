@@ -44,6 +44,19 @@ func (fs *FileStorage) Ping() error {
 	return err
 }
 
+// SaveBatch атомарно сохраняет несколько пар id->originalURL в память и файл.
+func (fs *FileStorage) SaveBatch(urls map[string]string) error {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	for id, originalURL := range urls {
+		if _, exists := fs.data[id]; exists {
+			return ErrAlreadyExists
+		}
+		fs.data[id] = originalURL
+	}
+	return fs.save() // перезаписывает файл атомарно
+}
+
 // load читает данные из JSON-файла и заполняет карту.
 func (fs *FileStorage) load() error {
 	file, err := os.Open(fs.filePath)

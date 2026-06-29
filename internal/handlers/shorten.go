@@ -17,6 +17,7 @@ type URLShortener interface {
 	Create(originalURL, baseURL string) (string, error)
 	Get(id string) (string, error)
 	Ping() error
+	CreateBatch(items []service.BatchItem, baseURL string) ([]service.BatchResult, error)
 }
 
 // ShortenHandler привязывает HTTP-запросы к сервису сокращения URL.
@@ -33,6 +34,71 @@ func (h *ShortenHandler) Ping(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusOK)
+}
+
+// batchRequest представляет тело запроса для /api/shorten/batch.
+type batchRequest []struct {
+	CorrelationID string `json:"correlation_id"`
+	OriginalURL   string `json:"original_url"`
+}
+
+// HandleBatchShorten обрабатывает POST /api/shorten/batch.
+func (h *ShortenHandler) HandleBatchShorten(w http.ResponseWriter, r *http.Request) {
+	ct := r.Header.Get("Content-Type")
+	if !strings.HasPrefix(ct, "application/json") {
+		http.Error(w, "Bad Request: Content-Type must be application/json", http.StatusBadRequest)
+		return
+	}
+
+	var req batchRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Bad Request: invalid JSON", http.StatusBadRequest)
+		return
+	}
+	if len(req) == 0 {
+		http.Error(w, "Bad Request: empty batch", http.StatusBadRequest)
+		return
+	}
+
+	// Преобразуем в тип service.BatchItem
+	items := make([]service.BatchItem, len(req))
+	for i, v := range req {
+		items[i] = service.BatchItem{
+			CorrelationID: v.CorrelationID,
+			OriginalURL:   v.OriginalURL,
+		}
+	}
+
+	results, err := h.shortener.CreateBatch(items, h.baseURL)
+
+	if err != nil {
+		if errors.Is(err, service.ErrEmptyURL) ||
+			errors.Is(err, storage.ErrAlreadyExists) ||
+			errors.Is(err, service.ErrMaxAttemptsExceeded) ||
+			errors.Is(err, service.ErrEmptyOriginalURL) {
+			http.Error(w, "Bad Request: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	// Формируем JSON-ответ
+	resp := make([]struct {
+		CorrelationID string `json:"correlation_id"`
+		ShortURL      string `json:"short_url"`
+	}, len(results))
+	for i, v := range results {
+		resp[i].CorrelationID = v.CorrelationID
+		resp[i].ShortURL = v.ShortURL
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
 }
 
 // NewShortenHandler создаёт новый обработчик с заданным сервисом и базовым URL.

@@ -93,6 +93,36 @@ func (s *PostgresStorage) Ping() error {
 	return s.db.Ping()
 }
 
+// SaveBatch сохраняет множество записей в рамках одной транзакции.
+func (s *PostgresStorage) SaveBatch(urls map[string]string) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.Prepare(`
+		INSERT INTO short_urls (id, original_url)
+		VALUES ($1, $2)
+		ON CONFLICT (id) DO NOTHING
+	`)
+	if err != nil {
+		return fmt.Errorf("prepare: %w", err)
+	}
+	defer stmt.Close()
+
+	for id, originalURL := range urls {
+		if _, err := stmt.Exec(id, originalURL); err != nil {
+			return fmt.Errorf("exec: %w", err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit: %w", err)
+	}
+	return nil
+}
+
 // Close закрывает соединение с БД.
 func (s *PostgresStorage) Close() error {
 	return s.db.Close()

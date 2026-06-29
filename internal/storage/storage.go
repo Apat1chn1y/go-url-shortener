@@ -20,4 +20,6 @@ type Storage interface {
 	Load(id string) (string, error)
 
 	Ping() error
+
+	SaveBatch(urls map[string]string) error
 }
