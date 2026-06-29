@@ -22,4 +22,6 @@ type Storage interface {
 	Ping() error
 
 	SaveBatch(urls map[string]string) error
+
+	FindByOriginal(originalURL string) (string, error)
 }

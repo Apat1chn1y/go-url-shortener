@@ -132,6 +132,13 @@ func (h *ShortenHandler) Create(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Bad Request: "+err.Error(), http.StatusBadRequest)
 			return
 		}
+		if errors.Is(err, service.ErrURLAlreadyExists) {
+			// URL уже существует – возвращаем 409 с уже имеющимся коротким URL
+			w.Header().Set("Content-Type", "text/plain")
+			w.WriteHeader(http.StatusConflict)
+			w.Write([]byte(shortURL)) // shortURL уже содержит baseURL+id
+			return
+		}
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}
@@ -197,6 +204,13 @@ func (h *ShortenHandler) HandleShortenJSON(w http.ResponseWriter, r *http.Reques
 			errors.Is(err, storage.ErrAlreadyExists) ||
 			errors.Is(err, service.ErrMaxAttemptsExceeded) {
 			http.Error(w, "Bad Request: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		if errors.Is(err, service.ErrURLAlreadyExists) {
+			resp := shortenResponse{Result: shortURL}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusConflict)
+			json.NewEncoder(w).Encode(resp)
 			return
 		}
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)

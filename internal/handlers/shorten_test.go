@@ -17,10 +17,18 @@ import (
 
 // mockStorage реализует storage.Storage для тестирования хендлеров.
 type mockStorage struct {
-	saveFunc      func(id, originalURL string) error
-	loadFunc      func(id string) (string, error)
-	pingFunc      func() error
-	saveBatchFunc func(urls map[string]string) error
+	saveFunc       func(id, originalURL string) error
+	loadFunc       func(id string) (string, error)
+	pingFunc       func() error
+	saveBatchFunc  func(urls map[string]string) error
+	findByOrigFunc func(originalURL string) (string, error)
+}
+
+func (m *mockStorage) FindByOriginal(originalURL string) (string, error) {
+	if m.findByOrigFunc != nil {
+		return m.findByOrigFunc(originalURL)
+	}
+	return "", storage.ErrNotFound
 }
 
 func (m *mockStorage) SaveBatch(urls map[string]string) error {
@@ -436,4 +444,54 @@ func TestShortenHandler_Ping_Error(t *testing.T) {
 
 	assert.Equal(t, http.StatusInternalServerError, rr.Code)
 	assert.Contains(t, rr.Body.String(), "Internal Server Error")
+}
+
+// TestShortenHandler_Create_Duplicate
+func TestShortenHandler_Create_Duplicate(t *testing.T) {
+	mockStore := &mockStorage{
+		findByOrigFunc: func(originalURL string) (string, error) {
+			if originalURL == "https://ya.ru" {
+				return "abc123", nil
+			}
+			return "", storage.ErrNotFound
+		},
+	}
+	shortener := service.NewShortener(mockStore)
+	handler := NewShortenHandler(shortener, "http://localhost:8080/")
+
+	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewBufferString("https://ya.ru"))
+	req.Header.Set("Content-Type", "text/plain")
+	rr := httptest.NewRecorder()
+	handler.Create(rr, req)
+
+	assert.Equal(t, http.StatusConflict, rr.Code)
+	assert.Equal(t, "http://localhost:8080/abc123", rr.Body.String())
+	assert.Equal(t, "text/plain", rr.Result().Header.Get("Content-Type"))
+}
+
+// TestShortenHandler_HandleShortenJSON_Duplicate
+func TestShortenHandler_HandleShortenJSON_Duplicate(t *testing.T) {
+	mockStore := &mockStorage{
+		findByOrigFunc: func(originalURL string) (string, error) {
+			if originalURL == "https://ya.ru" {
+				return "abc123", nil
+			}
+			return "", storage.ErrNotFound
+		},
+	}
+	shortener := service.NewShortener(mockStore)
+	handler := NewShortenHandler(shortener, "http://localhost:8080/")
+
+	req := httptest.NewRequest(http.MethodPost, "/api/shorten", bytes.NewBufferString(`{"url":"https://ya.ru"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	handler.HandleShortenJSON(rr, req)
+
+	assert.Equal(t, http.StatusConflict, rr.Code)
+	assert.Equal(t, "application/json", rr.Result().Header.Get("Content-Type"))
+
+	var resp shortenResponse
+	err := json.NewDecoder(rr.Body).Decode(&resp)
+	require.NoError(t, err)
+	assert.Equal(t, "http://localhost:8080/abc123", resp.Result)
 }

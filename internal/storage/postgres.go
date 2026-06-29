@@ -93,6 +93,18 @@ func (s *PostgresStorage) Ping() error {
 	return s.db.Ping()
 }
 
+func (s *PostgresStorage) FindByOriginal(originalURL string) (string, error) {
+	var id string
+	err := s.db.QueryRow("SELECT id FROM short_urls WHERE original_url = $1", originalURL).Scan(&id)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", ErrNotFound
+		}
+		return "", fmt.Errorf("select: %w", err)
+	}
+	return id, nil
+}
+
 // SaveBatch сохраняет множество записей в рамках одной транзакции.
 func (s *PostgresStorage) SaveBatch(urls map[string]string) error {
 	tx, err := s.db.Begin()

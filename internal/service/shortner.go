@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/Apat1chn1y/go-url-shortener.git/internal/storage"
@@ -14,6 +15,7 @@ var (
 	ErrEmptyURL            = errors.New("empty URL")
 	ErrMaxAttemptsExceeded = errors.New("failed to generate unique ID after 10 attempts")
 	ErrEmptyOriginalURL    = errors.New("empty original_url in batch")
+	ErrURLAlreadyExists    = errors.New("URL already exists")
 )
 
 // idLength — длина генерируемого короткого идентификатора.
@@ -53,40 +55,57 @@ func (s *Shortener) CreateBatch(items []BatchItem, baseURL string) ([]BatchResul
 		return nil, errors.New("empty batch")
 	}
 
-	urls := make(map[string]string) // id -> originalURL
-	results := make([]BatchResult, 0, len(items))
-	correlationMap := make(map[string]string) // id -> correlationID
-
+	// Проверяем, что все original_url не пустые
 	for _, item := range items {
 		if item.OriginalURL == "" {
-			return nil, ErrEmptyOriginalURL
+			return nil, ErrEmptyOriginalURL // объявлена в пакете service
 		}
-		// Генерируем ID (до 10 попыток)
+	}
+
+	results := make([]BatchResult, 0, len(items))
+	var toSave = make(map[string]string)         // id -> originalURL
+	var correlationMap = make(map[string]string) // id -> correlationID
+
+	for _, item := range items {
+		// Проверяем существование
+		existingID, err := s.storage.FindByOriginal(item.OriginalURL)
+		if err == nil {
+			// Уже существует – добавляем в результат без сохранения
+			results = append(results, BatchResult{
+				CorrelationID: item.CorrelationID,
+				ShortURL:      baseURL + existingID,
+			})
+			continue
+		}
+		if !errors.Is(err, storage.ErrNotFound) {
+			return nil, fmt.Errorf("find original: %w", err)
+		}
+		// Генерируем ID
 		var id string
-		var err error
 		for attempts := 0; attempts < 10; attempts++ {
 			id, err = generateID()
 			if err != nil {
 				return nil, err
 			}
+			// Проверяем, не занят ли ID (можно положиться на SaveBatch)
 			break
 		}
-		urls[id] = item.OriginalURL
+		toSave[id] = item.OriginalURL
 		correlationMap[id] = item.CorrelationID
 	}
 
-	// Сохраняем все записи атомарно
-	if err := s.storage.SaveBatch(urls); err != nil {
-		return nil, err
-	}
-
-	// Формируем ответ
-	for id, originalURL := range urls {
-		_ = originalURL // не используется
-		results = append(results, BatchResult{
-			CorrelationID: correlationMap[id],
-			ShortURL:      baseURL + id,
-		})
+	if len(toSave) > 0 {
+		if err := s.storage.SaveBatch(toSave); err != nil {
+			return nil, err
+		}
+		// Добавляем новые записи в результаты
+		for id, originalURL := range toSave {
+			_ = originalURL
+			results = append(results, BatchResult{
+				CorrelationID: correlationMap[id],
+				ShortURL:      baseURL + id,
+			})
+		}
 	}
 	return results, nil
 }
@@ -111,6 +130,17 @@ func (s *Shortener) Create(originalURL, baseURL string) (string, error) {
 	if originalURL == "" {
 		return "", ErrEmptyURL
 	}
+
+	// Проверяем, существует ли уже такой URL
+	existingID, err := s.storage.FindByOriginal(originalURL)
+	if err == nil {
+		return baseURL + existingID, ErrURLAlreadyExists
+	}
+	if !errors.Is(err, storage.ErrNotFound) {
+		return "", fmt.Errorf("find original: %w", err)
+	}
+
+	// Генерируем новый ID и сохраняем
 	for attempts := 0; attempts < 10; attempts++ {
 		id, err := generateID()
 		if err != nil {
@@ -121,7 +151,7 @@ func (s *Shortener) Create(originalURL, baseURL string) (string, error) {
 			return baseURL + id, nil
 		}
 		if errors.Is(err, storage.ErrAlreadyExists) {
-			continue
+			continue // коллизия ID
 		}
 		return "", err
 	}

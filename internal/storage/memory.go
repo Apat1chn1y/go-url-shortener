@@ -7,14 +7,16 @@ import (
 
 // InMemoryStorage реализует Storage с использованием map и мьютекса.
 type InMemoryStorage struct {
-	mu   sync.RWMutex
-	data map[string]string // id -> originalURL
+	mu      sync.RWMutex
+	data    map[string]string // id -> originalURL
+	urlToID map[string]string // originalURL -> id
 }
 
 // NewInMemoryStorage создаёт новый экземпляр in-memory хранилища.
 func NewInMemoryStorage() *InMemoryStorage {
 	return &InMemoryStorage{
-		data: make(map[string]string),
+		data:    make(map[string]string),
+		urlToID: make(map[string]string),
 	}
 }
 
@@ -43,7 +45,17 @@ func (s *InMemoryStorage) Save(id, originalURL string) error {
 		return ErrAlreadyExists
 	}
 	s.data[id] = originalURL
+	s.urlToID[originalURL] = id
 	return nil
+}
+
+func (s *InMemoryStorage) FindByOriginal(originalURL string) (string, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if id, ok := s.urlToID[originalURL]; ok {
+		return id, nil
+	}
+	return "", ErrNotFound
 }
 
 // Load возвращает оригинальный URL по id.
