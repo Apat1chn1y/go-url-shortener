@@ -2,14 +2,20 @@ package storage
 
 import (
 	"database/sql"
+	"embed"
 	"errors"
 	"fmt"
 
+	"github.com/golang-migrate/migrate/v4"
+	"github.com/golang-migrate/migrate/v4/database/postgres"
+	"github.com/golang-migrate/migrate/v4/source/iofs"
 	"github.com/lib/pq"
 	_ "github.com/lib/pq"
 )
 
-// PostgresStorage реализует Storage через PostgreSQL.
+//go:embed migrations/*.sql
+var migrationFiles embed.FS
+
 type PostgresStorage struct {
 	db *sql.DB
 }
@@ -23,18 +29,29 @@ func NewPostgresStorage(dsn string) (*PostgresStorage, error) {
 	if err := db.Ping(); err != nil {
 		return nil, fmt.Errorf("ping db: %w", err)
 	}
-	// Создаём таблицу, если её нет
-	const createTableSQL = `
-	CREATE TABLE IF NOT EXISTS short_urls (
-		id VARCHAR(255) PRIMARY KEY,
-		original_url TEXT NOT NULL,
-		uuid VARCHAR(36) NOT NULL DEFAULT gen_random_uuid()
-	);
-	`
-	if _, err := db.Exec(createTableSQL); err != nil {
-		return nil, fmt.Errorf("create table: %w", err)
+	if err := applyMigrations(db); err != nil {
+		return nil, fmt.Errorf("migrations: %w", err)
 	}
 	return &PostgresStorage{db: db}, nil
+}
+
+func applyMigrations(db *sql.DB) error {
+	driver, err := postgres.WithInstance(db, &postgres.Config{})
+	if err != nil {
+		return fmt.Errorf("create driver: %w", err)
+	}
+	src, err := iofs.New(migrationFiles, "migrations")
+	if err != nil {
+		return fmt.Errorf("create iofs source: %w", err)
+	}
+	m, err := migrate.NewWithInstance("iofs", src, "postgres", driver)
+	if err != nil {
+		return fmt.Errorf("create migrate instance: %w", err)
+	}
+	if err := m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
+		return fmt.Errorf("migrate up: %w", err)
+	}
+	return nil
 }
 
 // Save сохраняет пару id -> original_url.

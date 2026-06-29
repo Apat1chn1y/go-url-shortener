@@ -17,12 +17,10 @@ func main() {
 	// Загрузка конфигурации из переменных окружения.
 	cfg := config.NewConfig()
 
-	// Инициализация хранилища in-memory.
-	// store := storage.NewInMemoryStorage()
-
 	var store storage.Storage
 	var err error
 
+	// Приоритет хранилищ: PostgreSQL → файл → память
 	if cfg.DatabaseDSN != "" {
 		// Инициализация pg хранилища.
 		store, err = storage.NewPostgresStorage(cfg.DatabaseDSN)
@@ -31,13 +29,17 @@ func main() {
 		}
 		defer store.(*storage.PostgresStorage).Close()
 		logger.Info().Msg("Using PostgreSQL storage")
-	} else {
+	} else if cfg.FileStoragePath != "" {
 		// Инициализация файлового хранилища.
 		store, err = storage.NewFileStorage(cfg.FileStoragePath)
 		if err != nil {
 			logger.Fatal().Err(err).Str("path", cfg.FileStoragePath).Msg("Cannot initialize file storage")
 		}
 		logger.Info().Msg("Using file storage")
+	} else {
+		// Инициализация хранилища in-memory.
+		store = storage.NewInMemoryStorage()
+		logger.Info().Msg("Using in-memory storage")
 	}
 
 	// Инициализация сервиса бизнес-логики.
