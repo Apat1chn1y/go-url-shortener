@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"context"
 	"os"
 	"testing"
 
@@ -27,13 +28,22 @@ func TestPostgresStorage(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, "https://example.com", url)
 
-	// Повторное сохранение – ошибка
+	// Повторное сохранение того же ID – ошибка ErrAlreadyExists
 	err = store.Save("test123", "https://example.com")
 	assert.ErrorIs(t, err, ErrAlreadyExists)
+
+	// Сохранение нового ID с тем же оригинальным URL – ошибка уникальности original_url
+	err = store.Save("test456", "https://example.com")
+	assert.ErrorIs(t, err, ErrOriginalURLDuplicate)
+
+	// Проверка FindByOriginal
+	foundID, err := store.FindByOriginal("https://example.com")
+	assert.NoError(t, err)
+	assert.Equal(t, "test123", foundID)
 
 	// Ping
 	assert.NoError(t, store.Ping())
 
-	// Удалим запись (не обязательно, но чистим)
-	_, _ = store.db.Exec("DELETE FROM short_urls WHERE id = $1", "test123")
+	// Удалим записи (чистка)
+	_, _ = store.pool.Exec(context.Background(), "DELETE FROM short_urls WHERE id = $1 OR id = $2", "test123", "test456")
 }

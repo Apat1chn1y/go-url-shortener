@@ -25,7 +25,7 @@ func main() {
 		// Инициализация pg хранилища.
 		store, err = storage.NewPostgresStorage(cfg.DatabaseDSN)
 		if err != nil {
-			logger.Fatal().Err(err).Str("dsn", cfg.DatabaseDSN).Msg("Cannot connect to database")
+			logger.Fatal().Err(err).Msg("Cannot connect to database")
 		}
 		defer store.(*storage.PostgresStorage).Close()
 		logger.Info().Msg("Using PostgreSQL storage")

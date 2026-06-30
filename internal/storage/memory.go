@@ -32,6 +32,7 @@ func (s *InMemoryStorage) SaveBatch(urls map[string]string) error {
 			return ErrAlreadyExists
 		}
 		s.data[id] = originalURL
+		s.urlToID[originalURL] = id
 	}
 	return nil
 }

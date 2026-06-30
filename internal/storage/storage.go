@@ -9,6 +9,9 @@ var ErrNotFound = errors.New("URL not found")
 // ErrAlreadyExists возвращается при попытке сохранить уже существующий ID.
 var ErrAlreadyExists = errors.New("ID already exists")
 
+// ErrOriginalURLDuplicate возвращается при попытке сохранить уже существующий URL.
+var ErrOriginalURLDuplicate = errors.New("original URL already exists")
+
 // Storage определяет контракт для хранилища коротких URL.
 type Storage interface {
 	// Save сохраняет пару идентификатор-оригинальный URL.

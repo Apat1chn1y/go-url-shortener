@@ -40,9 +40,8 @@ func NewFileStorage(filePath string) (*FileStorage, error) {
 }
 
 func (fs *FileStorage) Ping() error {
-	// Проверяем, можем ли открыть файл на чтение
-	_, err := os.Open(fs.filePath)
-	return err
+	// Для файлового хранилища всегда возвращаем nil
+	return nil
 }
 
 // SaveBatch атомарно сохраняет несколько пар id->originalURL в память и файл.
@@ -54,6 +53,7 @@ func (fs *FileStorage) SaveBatch(urls map[string]string) error {
 			return ErrAlreadyExists
 		}
 		fs.data[id] = originalURL
+		fs.urlToID[originalURL] = id
 	}
 	return fs.save() // перезаписывает файл атомарно
 }

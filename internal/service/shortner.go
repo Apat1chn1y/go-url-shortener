@@ -48,39 +48,46 @@ type BatchResult struct {
 	ShortURL      string `json:"short_url"`
 }
 
+func (s *Shortener) FindByOriginal(originalURL string) (string, error) {
+	return s.storage.FindByOriginal(originalURL)
+}
+
 // CreateBatch создаёт короткие URL для множества оригинальных.
-// Возвращает срез результатов с correlation_id и полными short_url.
+// Возвращает результаты в том же порядке, в котором пришли элементы.
 func (s *Shortener) CreateBatch(items []BatchItem, baseURL string) ([]BatchResult, error) {
 	if len(items) == 0 {
 		return nil, errors.New("empty batch")
 	}
 
-	// Проверяем, что все original_url не пустые
-	for _, item := range items {
-		if item.OriginalURL == "" {
-			return nil, ErrEmptyOriginalURL // объявлена в пакете service
-		}
+	results := make([]BatchResult, len(items))
+	// Структура для хранения данных о новых записях (сохраняем порядок)
+	type pendingItem struct {
+		correlationID string
+		originalURL   string
+		id            string
 	}
+	pending := make([]pendingItem, 0, len(items))
 
-	results := make([]BatchResult, 0, len(items))
-	var toSave = make(map[string]string)         // id -> originalURL
-	var correlationMap = make(map[string]string) // id -> correlationID
+	for i, item := range items {
+		if item.OriginalURL == "" {
+			return nil, ErrEmptyOriginalURL
+		}
 
-	for _, item := range items {
-		// Проверяем существование
+		// Проверяем, существует ли уже такой URL
 		existingID, err := s.storage.FindByOriginal(item.OriginalURL)
 		if err == nil {
-			// Уже существует – добавляем в результат без сохранения
-			results = append(results, BatchResult{
+			// Уже есть – добавляем в результат сразу
+			results[i] = BatchResult{
 				CorrelationID: item.CorrelationID,
 				ShortURL:      baseURL + existingID,
-			})
+			}
 			continue
 		}
 		if !errors.Is(err, storage.ErrNotFound) {
 			return nil, fmt.Errorf("find original: %w", err)
 		}
-		// Генерируем ID
+
+		// Новый URL – генерируем ID
 		var id string
 		for attempts := 0; attempts < 10; attempts++ {
 			id, err = generateID()
@@ -90,23 +97,33 @@ func (s *Shortener) CreateBatch(items []BatchItem, baseURL string) ([]BatchResul
 			// Проверяем, не занят ли ID (можно положиться на SaveBatch)
 			break
 		}
-		toSave[id] = item.OriginalURL
-		correlationMap[id] = item.CorrelationID
+
+		// Добавляем в список для сохранения
+		pending = append(pending, pendingItem{
+			correlationID: item.CorrelationID,
+			originalURL:   item.OriginalURL,
+			id:            id,
+		})
+
+		// Временно заполняем результат сгенерированным ID
+		results[i] = BatchResult{
+			CorrelationID: item.CorrelationID,
+			ShortURL:      baseURL + id,
+		}
 	}
 
-	if len(toSave) > 0 {
+	// Сохраняем все новые записи одной транзакцией
+	if len(pending) > 0 {
+		toSave := make(map[string]string, len(pending))
+		for _, p := range pending {
+			toSave[p.id] = p.originalURL
+		}
 		if err := s.storage.SaveBatch(toSave); err != nil {
 			return nil, err
 		}
-		// Добавляем новые записи в результаты
-		for id, originalURL := range toSave {
-			_ = originalURL
-			results = append(results, BatchResult{
-				CorrelationID: correlationMap[id],
-				ShortURL:      baseURL + id,
-			})
-		}
+		// Результаты уже заполнены корректными ID, ничего дополнительно не нужно
 	}
+
 	return results, nil
 }
 

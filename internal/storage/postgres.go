@@ -1,6 +1,8 @@
+// Package storage предоставляет реализацию хранилища для PostgreSQL с использованием pgx.
 package storage
 
 import (
+	"context"
 	"database/sql"
 	"embed"
 	"errors"
@@ -9,32 +11,44 @@ import (
 	"github.com/golang-migrate/migrate/v4"
 	"github.com/golang-migrate/migrate/v4/database/postgres"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
-	"github.com/lib/pq"
-	_ "github.com/lib/pq"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
+	_ "github.com/jackc/pgx/v5/stdlib" // для миграций через database/sql
 )
 
 //go:embed migrations/*.sql
 var migrationFiles embed.FS
 
+// PostgresStorage реализует Storage через PostgreSQL с использованием pgxpool.
 type PostgresStorage struct {
-	db *sql.DB
+	pool *pgxpool.Pool
 }
 
-// NewPostgresStorage создаёт новое PostgreSQL-хранилище и выполняет миграцию.
+// NewPostgresStorage создаёт новое PostgreSQL-хранилище, применяет миграции и возвращает пул.
 func NewPostgresStorage(dsn string) (*PostgresStorage, error) {
-	db, err := sql.Open("postgres", dsn)
+	pool, err := pgxpool.New(context.Background(), dsn)
 	if err != nil {
-		return nil, fmt.Errorf("open db: %w", err)
+		return nil, fmt.Errorf("open pool: %w", err)
 	}
-	if err := db.Ping(); err != nil {
-		return nil, fmt.Errorf("ping db: %w", err)
+	if err := pool.Ping(context.Background()); err != nil {
+		return nil, fmt.Errorf("ping: %w", err)
 	}
-	if err := applyMigrations(db); err != nil {
+
+	// Для миграций используем временное *sql.DB (драйвер pgx)
+	sqlDB, err := sql.Open("pgx", dsn)
+	if err != nil {
+		return nil, fmt.Errorf("open sql db: %w", err)
+	}
+	defer sqlDB.Close()
+	if err := applyMigrations(sqlDB); err != nil {
 		return nil, fmt.Errorf("migrations: %w", err)
 	}
-	return &PostgresStorage{db: db}, nil
+
+	return &PostgresStorage{pool: pool}, nil
 }
 
+// applyMigrations применяет встроенные SQL-миграции через migrate.
 func applyMigrations(db *sql.DB) error {
 	driver, err := postgres.WithInstance(db, &postgres.Config{})
 	if err != nil {
@@ -54,33 +68,64 @@ func applyMigrations(db *sql.DB) error {
 	return nil
 }
 
-// Save сохраняет пару id -> original_url.
-// Если id уже существует, возвращает ErrAlreadyExists.
+// Save сохраняет пару id->original_url.
+// При нарушении уникальности возвращает соответствующую ошибку.
 func (s *PostgresStorage) Save(id, originalURL string) error {
-	_, err := s.db.Exec(
-		"INSERT INTO short_urls (id, original_url) VALUES ($1, $2)",
-		id, originalURL,
-	)
+	_, err := s.pool.Exec(context.Background(),
+		"INSERT INTO short_urls (id, original_url) VALUES ($1, $2)", id, originalURL)
 	if err != nil {
-		// Проверяем нарушение уникальности (код ошибки 23505 в PostgreSQL)
-		if isDuplicateKeyError(err) {
-			return ErrAlreadyExists
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			switch pgErr.ConstraintName {
+			case "short_urls_pkey":
+				return ErrAlreadyExists
+			case "idx_short_urls_original_url":
+				return ErrOriginalURLDuplicate
+			default:
+				return fmt.Errorf("insert: %w", err)
+			}
 		}
 		return fmt.Errorf("insert: %w", err)
 	}
 	return nil
 }
 
-// Load возвращает оригинальный URL по id.
-// Если id не найден, возвращает ErrNotFound.
+// SaveBatch сохраняет множество записей с использованием pgx.Batch.
+// Отправляет все INSERT-запросы одним пакетом для повышения производительности.
+func (s *PostgresStorage) SaveBatch(urls map[string]string) error {
+	if len(urls) == 0 {
+		return nil
+	}
+
+	batch := &pgx.Batch{}
+	for id, originalURL := range urls {
+		batch.Queue(`
+			INSERT INTO short_urls (id, original_url)
+			VALUES ($1, $2)
+			ON CONFLICT (id) DO NOTHING
+		`, id, originalURL)
+	}
+
+	ctx := context.Background()
+	br := s.pool.SendBatch(ctx, batch)
+	defer br.Close()
+
+	for range urls {
+		_, err := br.Exec()
+		if err != nil {
+			return fmt.Errorf("batch exec: %w", err)
+		}
+	}
+	return nil
+}
+
+// Load возвращает оригинальный URL по id. Возвращает ErrNotFound, если запись отсутствует.
 func (s *PostgresStorage) Load(id string) (string, error) {
 	var originalURL string
-	err := s.db.QueryRow(
-		"SELECT original_url FROM short_urls WHERE id = $1",
-		id,
-	).Scan(&originalURL)
+	err := s.pool.QueryRow(context.Background(),
+		"SELECT original_url FROM short_urls WHERE id = $1", id).Scan(&originalURL)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return "", ErrNotFound
 		}
 		return "", fmt.Errorf("select: %w", err)
@@ -88,16 +133,13 @@ func (s *PostgresStorage) Load(id string) (string, error) {
 	return originalURL, nil
 }
 
-// Ping проверяет соединение с БД.
-func (s *PostgresStorage) Ping() error {
-	return s.db.Ping()
-}
-
+// FindByOriginal возвращает id по оригинальному URL. Возвращает ErrNotFound, если URL не найден.
 func (s *PostgresStorage) FindByOriginal(originalURL string) (string, error) {
 	var id string
-	err := s.db.QueryRow("SELECT id FROM short_urls WHERE original_url = $1", originalURL).Scan(&id)
+	err := s.pool.QueryRow(context.Background(),
+		"SELECT id FROM short_urls WHERE original_url = $1", originalURL).Scan(&id)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return "", ErrNotFound
 		}
 		return "", fmt.Errorf("select: %w", err)
@@ -105,46 +147,13 @@ func (s *PostgresStorage) FindByOriginal(originalURL string) (string, error) {
 	return id, nil
 }
 
-// SaveBatch сохраняет множество записей в рамках одной транзакции.
-func (s *PostgresStorage) SaveBatch(urls map[string]string) error {
-	tx, err := s.db.Begin()
-	if err != nil {
-		return fmt.Errorf("begin tx: %w", err)
-	}
-	defer tx.Rollback()
-
-	stmt, err := tx.Prepare(`
-		INSERT INTO short_urls (id, original_url)
-		VALUES ($1, $2)
-		ON CONFLICT (id) DO NOTHING
-	`)
-	if err != nil {
-		return fmt.Errorf("prepare: %w", err)
-	}
-	defer stmt.Close()
-
-	for id, originalURL := range urls {
-		if _, err := stmt.Exec(id, originalURL); err != nil {
-			return fmt.Errorf("exec: %w", err)
-		}
-	}
-
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit: %w", err)
-	}
-	return nil
+// Ping проверяет доступность базы данных.
+func (s *PostgresStorage) Ping() error {
+	return s.pool.Ping(context.Background())
 }
 
-// Close закрывает соединение с БД.
+// Close закрывает пул соединений.
 func (s *PostgresStorage) Close() error {
-	return s.db.Close()
-}
-
-// isDuplicateKeyError проверяет, является ли ошибка нарушением уникальности.
-func isDuplicateKeyError(err error) bool {
-	// код ошибки PostgreSQL для duplicate key: 23505
-	if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "23505" {
-		return true
-	}
-	return false
+	s.pool.Close()
+	return nil
 }

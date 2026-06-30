@@ -41,16 +41,16 @@ func NewConfig() *Config {
 	flag.StringVar(&flagDB, "d", "", "DSN для подключения к PostgreSQL")
 	flag.Parse()
 
-	addr := os.Getenv("SERVER_ADDRESS")
-	if addr == "" {
+	addr, ok := os.LookupEnv("SERVER_ADDRESS")
+	if !ok {
 		addr = flagAddr
 	}
 	if addr == "" {
 		addr = ":8080"
 	}
 
-	base := os.Getenv("BASE_URL")
-	if base == "" {
+	base, ok := os.LookupEnv("BASE_URL")
+	if !ok {
 		base = flagBase
 	}
 	if base == "" {
@@ -60,16 +60,13 @@ func NewConfig() *Config {
 		base += "/"
 	}
 
-	filePath := os.Getenv("FILE_STORAGE_PATH")
-	if filePath == "" {
+	filePath, ok := os.LookupEnv("FILE_STORAGE_PATH")
+	if !ok {
 		filePath = flagFile
 	}
-	if filePath == "" {
-		filePath = "storage.json"
-	}
 
-	dbDSN := os.Getenv("DATABASE_DSN")
-	if dbDSN == "" {
+	dbDSN, ok := os.LookupEnv("DATABASE_DSN")
+	if !ok {
 		dbDSN = flagDB
 	}
 
