@@ -27,7 +27,7 @@ type PostgresStorage struct {
 
 // NewPostgresStorage создаёт новое PostgreSQL-хранилище, применяет миграции и возвращает пул.
 func NewPostgresStorage(dsn string) (*PostgresStorage, error) {
-	pool, err := pgxpool.New(context.Background(), dsn)
+	pool, err := pgxpool.New(context.TODO(), dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open pool: %w", err)
 	}
@@ -71,7 +71,7 @@ func applyMigrations(db *sql.DB) error {
 // Save сохраняет пару id->original_url.
 // При нарушении уникальности возвращает соответствующую ошибку.
 func (s *PostgresStorage) Save(id, originalURL string) error {
-	_, err := s.pool.Exec(context.Background(),
+	_, err := s.pool.Exec(context.TODO(),
 		"INSERT INTO short_urls (id, original_url) VALUES ($1, $2)", id, originalURL)
 	if err != nil {
 		var pgErr *pgconn.PgError
@@ -106,7 +106,7 @@ func (s *PostgresStorage) SaveBatch(urls map[string]string) error {
 		`, id, originalURL)
 	}
 
-	ctx := context.Background()
+	ctx := context.TODO()
 	br := s.pool.SendBatch(ctx, batch)
 	defer br.Close()
 
@@ -122,7 +122,7 @@ func (s *PostgresStorage) SaveBatch(urls map[string]string) error {
 // Load возвращает оригинальный URL по id. Возвращает ErrNotFound, если запись отсутствует.
 func (s *PostgresStorage) Load(id string) (string, error) {
 	var originalURL string
-	err := s.pool.QueryRow(context.Background(),
+	err := s.pool.QueryRow(context.TODO(),
 		"SELECT original_url FROM short_urls WHERE id = $1", id).Scan(&originalURL)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -136,7 +136,7 @@ func (s *PostgresStorage) Load(id string) (string, error) {
 // FindByOriginal возвращает id по оригинальному URL. Возвращает ErrNotFound, если URL не найден.
 func (s *PostgresStorage) FindByOriginal(originalURL string) (string, error) {
 	var id string
-	err := s.pool.QueryRow(context.Background(),
+	err := s.pool.QueryRow(context.TODO(),
 		"SELECT id FROM short_urls WHERE original_url = $1", originalURL).Scan(&id)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -149,7 +149,7 @@ func (s *PostgresStorage) FindByOriginal(originalURL string) (string, error) {
 
 // Ping проверяет доступность базы данных.
 func (s *PostgresStorage) Ping() error {
-	return s.pool.Ping(context.Background())
+	return s.pool.Ping(context.TODO())
 }
 
 // Close закрывает пул соединений.

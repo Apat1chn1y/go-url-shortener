@@ -8,6 +8,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/rs/zerolog"
+
 	"github.com/Apat1chn1y/go-url-shortener.git/internal/service"
 	"github.com/Apat1chn1y/go-url-shortener.git/internal/storage"
 
@@ -70,8 +72,8 @@ func TestShortenHandler_Create(t *testing.T) {
 				m.EXPECT().FindByOriginal("https://example.com").Return("", storage.ErrNotFound).Once()
 				m.EXPECT().Save(mock.Anything, "https://example.com").Return(storage.ErrAlreadyExists).Times(10)
 			},
-			expectedStatus: http.StatusBadRequest,
-			expectedBody:   "Bad Request: failed to generate unique ID after 10 attempts\n",
+			expectedStatus: http.StatusInternalServerError,
+			expectedBody:   "Internal Server Error\n",
 		},
 		{
 			name:        "storage other error",
@@ -93,7 +95,7 @@ func TestShortenHandler_Create(t *testing.T) {
 				tt.setupMock(mockStore)
 			}
 			shortener := service.NewShortener(mockStore)
-			handler := NewShortenHandler(shortener, "http://localhost:8080/")
+			handler := NewShortenHandler(shortener, "http://localhost:8080/", zerolog.Nop())
 
 			req := httptest.NewRequest(http.MethodPost, "/", bytes.NewBufferString(tt.body))
 			req.Header.Set("Content-Type", tt.contentType)
@@ -158,7 +160,7 @@ func TestShortenHandler_Redirect(t *testing.T) {
 				tt.setupMock(mockStore)
 			}
 			shortener := service.NewShortener(mockStore)
-			handler := NewShortenHandler(shortener, "http://localhost:8080/")
+			handler := NewShortenHandler(shortener, "http://localhost:8080/", zerolog.Nop())
 
 			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
 			rr := httptest.NewRecorder()
@@ -231,8 +233,8 @@ func TestShortenHandler_HandleShortenJSON(t *testing.T) {
 				m.EXPECT().FindByOriginal("https://example.com").Return("", storage.ErrNotFound).Once()
 				m.EXPECT().Save(mock.Anything, "https://example.com").Return(storage.ErrAlreadyExists).Times(10)
 			},
-			expectedStatus: http.StatusBadRequest,
-			expectedBody:   "Bad Request: failed to generate unique ID after 10 attempts\n",
+			expectedStatus: http.StatusInternalServerError,
+			expectedBody:   "Internal Server Error\n",
 		},
 		{
 			name:        "storage other error",
@@ -267,7 +269,7 @@ func TestShortenHandler_HandleShortenJSON(t *testing.T) {
 				tt.setupMock(mockStore)
 			}
 			shortener := service.NewShortener(mockStore)
-			handler := NewShortenHandler(shortener, "http://localhost:8080/")
+			handler := NewShortenHandler(shortener, "http://localhost:8080/", zerolog.Nop())
 
 			req := httptest.NewRequest(http.MethodPost, "/api/shorten", bytes.NewBufferString(tt.body))
 			req.Header.Set("Content-Type", tt.contentType)
@@ -300,7 +302,7 @@ func TestShortenHandler_Ping(t *testing.T) {
 	mockStore.EXPECT().Ping().Return(nil).Once()
 
 	shortener := service.NewShortener(mockStore)
-	handler := NewShortenHandler(shortener, "http://localhost:8080/")
+	handler := NewShortenHandler(shortener, "http://localhost:8080/", zerolog.Nop())
 
 	req := httptest.NewRequest(http.MethodGet, "/ping", nil)
 	rr := httptest.NewRecorder()
@@ -315,7 +317,7 @@ func TestShortenHandler_Ping_Error(t *testing.T) {
 	mockStore.EXPECT().Ping().Return(errors.New("db down")).Once()
 
 	shortener := service.NewShortener(mockStore)
-	handler := NewShortenHandler(shortener, "http://localhost:8080/")
+	handler := NewShortenHandler(shortener, "http://localhost:8080/", zerolog.Nop())
 
 	req := httptest.NewRequest(http.MethodGet, "/ping", nil)
 	rr := httptest.NewRecorder()
@@ -332,7 +334,7 @@ func TestShortenHandler_Create_Duplicate(t *testing.T) {
 	// Save не вызывается
 
 	shortener := service.NewShortener(mockStore)
-	handler := NewShortenHandler(shortener, "http://localhost:8080/")
+	handler := NewShortenHandler(shortener, "http://localhost:8080/", zerolog.Nop())
 
 	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewBufferString("https://ya.ru"))
 	req.Header.Set("Content-Type", "text/plain")
@@ -352,7 +354,7 @@ func TestShortenHandler_HandleShortenJSON_Duplicate(t *testing.T) {
 	// Save не вызывается
 
 	shortener := service.NewShortener(mockStore)
-	handler := NewShortenHandler(shortener, "http://localhost:8080/")
+	handler := NewShortenHandler(shortener, "http://localhost:8080/", zerolog.Nop())
 
 	req := httptest.NewRequest(http.MethodPost, "/api/shorten", bytes.NewBufferString(`{"url":"https://ya.ru"}`))
 	req.Header.Set("Content-Type", "application/json")
@@ -447,7 +449,7 @@ func TestShortenHandler_HandleBatchShorten(t *testing.T) {
 				tt.setupMock(mockStore)
 			}
 			shortener := service.NewShortener(mockStore)
-			handler := NewShortenHandler(shortener, "http://localhost:8080/")
+			handler := NewShortenHandler(shortener, "http://localhost:8080/", zerolog.Nop())
 
 			req := httptest.NewRequest(http.MethodPost, "/api/shorten/batch", bytes.NewBufferString(tt.body))
 			req.Header.Set("Content-Type", tt.contentType)

@@ -45,7 +45,7 @@ func main() {
 	// Инициализация сервиса бизнес-логики.
 	shortener := service.NewShortener(store)
 	// Инициализация HTTP-обработчика.
-	handler := handlers.NewShortenHandler(shortener, cfg.BaseURL)
+	handler := handlers.NewShortenHandler(shortener, cfg.BaseURL, logger)
 
 	// Создание роутера
 	router := handlers.NewRouter(handler, logger)

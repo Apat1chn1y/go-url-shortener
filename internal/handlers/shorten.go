@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/Apat1chn1y/go-url-shortener.git/internal/service"
+	"github.com/rs/zerolog"
 )
 
 // URLShortener определяет контракт бизнес-логики, необходимый обработчикам.
@@ -23,13 +24,15 @@ type URLShortener interface {
 type ShortenHandler struct {
 	shortener URLShortener
 	baseURL   string
+	logger    zerolog.Logger
 }
 
 // NewShortenHandler создаёт новый обработчик с заданным сервисом и базовым URL.
-func NewShortenHandler(shortener URLShortener, baseURL string) *ShortenHandler {
+func NewShortenHandler(shortener URLShortener, baseURL string, logger zerolog.Logger) *ShortenHandler {
 	return &ShortenHandler{
 		shortener: shortener,
 		baseURL:   baseURL,
+		logger:    logger,
 	}
 }
 
@@ -48,8 +51,16 @@ func (h *ShortenHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 	shortURL, err := h.shortener.Create(originalURL, h.baseURL)
 	if err != nil {
-		if errors.Is(err, service.ErrEmptyURL) || errors.Is(err, service.ErrMaxAttemptsExceeded) {
+		if errors.Is(err, service.ErrEmptyURL) {
 			http.Error(w, http.StatusText(http.StatusBadRequest)+": "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		if errors.Is(err, service.ErrMaxAttemptsExceeded) {
+			h.logger.Error().
+				Err(err).
+				Str("url", originalURL).
+				Msg("failed to generate unique ID")
+			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 			return
 		}
 		if errors.Is(err, service.ErrURLAlreadyExists) {
@@ -103,9 +114,15 @@ func (h *ShortenHandler) HandleShortenJSON(w http.ResponseWriter, r *http.Reques
 
 	shortURL, err := h.shortener.Create(req.URL, h.baseURL)
 	if err != nil {
-		if errors.Is(err, service.ErrEmptyURL) || errors.Is(err, service.ErrMaxAttemptsExceeded) {
+		if errors.Is(err, service.ErrEmptyURL) {
 			http.Error(w, http.StatusText(http.StatusBadRequest)+": "+err.Error(), http.StatusBadRequest)
 			return
+		}
+		if errors.Is(err, service.ErrMaxAttemptsExceeded) {
+			h.logger.Error().
+				Err(err).
+				Str("url", req.URL).
+				Msg("failed to generate unique ID")
 		}
 		if errors.Is(err, service.ErrURLAlreadyExists) {
 			resp := shortenResponse{Result: shortURL}
@@ -165,10 +182,14 @@ func (h *ShortenHandler) HandleBatchShorten(w http.ResponseWriter, r *http.Reque
 	results, err := h.shortener.CreateBatch(items, h.baseURL)
 	if err != nil {
 		if errors.Is(err, service.ErrEmptyURL) ||
-			errors.Is(err, service.ErrMaxAttemptsExceeded) ||
 			errors.Is(err, service.ErrEmptyOriginalURL) {
 			http.Error(w, http.StatusText(http.StatusBadRequest)+": "+err.Error(), http.StatusBadRequest)
 			return
+		}
+		if errors.Is(err, service.ErrMaxAttemptsExceeded) {
+			h.logger.Error().
+				Err(err).
+				Msg("failed to generate unique ID for batch")
 		}
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return

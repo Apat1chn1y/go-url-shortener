@@ -10,18 +10,17 @@ import (
 
 	"github.com/Apat1chn1y/go-url-shortener.git/internal/handlers"
 	mocks "github.com/Apat1chn1y/go-url-shortener.git/internal/mocks/handlers"
-	"github.com/Apat1chn1y/go-url-shortener.git/internal/storage"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
 func TestRouterIntegration(t *testing.T) {
-	// Создаём мок URLShortener (сгенерированный mockery)
+	// Создаём мок URLShortener
 	mockShortener := mocks.NewURLShortener(t)
 
-	// Настраиваем ожидания для методов, которые реально вызываются
+	// Настраиваем точные ожидания: в этом тесте будут вызваны только Create и Get.
+	// Методы FindByOriginal, Ping, CreateBatch не вызываются, поэтому их не регистрируем.
 	mockShortener.EXPECT().
 		Create("https://example.com", "http://localhost:8080/").
 		Return("http://localhost:8080/abc123", nil).
@@ -37,12 +36,7 @@ func TestRouterIntegration(t *testing.T) {
 		Return("https://original.com", nil).
 		Times(1)
 
-	// Остальные методы могут вызываться или нет — ставим Maybe()
-	mockShortener.EXPECT().Ping().Return(nil).Maybe()
-	mockShortener.EXPECT().FindByOriginal(mock.Anything).Return("", storage.ErrNotFound).Maybe()
-	mockShortener.EXPECT().CreateBatch(nil, "").Maybe()
-
-	handler := handlers.NewShortenHandler(mockShortener, "http://localhost:8080/")
+	handler := handlers.NewShortenHandler(mockShortener, "http://localhost:8080/", zerolog.Nop())
 	logger := zerolog.Nop()
 	router := handlers.NewRouter(handler, logger)
 	ts := httptest.NewServer(router)

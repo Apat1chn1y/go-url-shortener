@@ -20,22 +20,21 @@ import (
 
 // TestGzipMiddleware проверяет работу gzip middleware.
 func TestGzipMiddleware(t *testing.T) {
-	// Вспомогательная функция для настройки мока с общими ожиданиями
-	setupMock := func(m *storagemocks.Storage) {
-		// Ожидаем, что при создании ссылки будет вызов FindByOriginal и Save.
-		// Используем Maybe(), так как в некоторых тестах эти вызовы могут не происходить.
-		m.EXPECT().FindByOriginal(mock.Anything).Return("", storage.ErrNotFound).Maybe()
-		m.EXPECT().Save(mock.Anything, mock.Anything).Return(nil).Maybe()
-	}
-
-	// ---- Тест: сжатый ответ для JSON эндпоинта ----
 	t.Run("response compressed for /api/shorten with Accept-Encoding: gzip", func(t *testing.T) {
 		mockStore := storagemocks.NewStorage(t)
-		setupMock(mockStore)
+		// Ожидаем, что будут вызваны FindByOriginal и Save
+		mockStore.EXPECT().
+			FindByOriginal("https://ya.ru").
+			Return("", storage.ErrNotFound).
+			Once()
+		mockStore.EXPECT().
+			Save(mock.Anything, "https://ya.ru").
+			Return(nil).
+			Once()
 
 		logger := zerolog.Nop()
 		shortener := service.NewShortener(mockStore)
-		handler := NewShortenHandler(shortener, "http://localhost:8080/")
+		handler := NewShortenHandler(shortener, "http://localhost:8080/", zerolog.Nop())
 		router := NewRouter(handler, logger)
 
 		body := `{"url":"https://ya.ru"}`
@@ -62,14 +61,21 @@ func TestGzipMiddleware(t *testing.T) {
 		assert.Contains(t, resp.Result, "http://localhost:8080/")
 	})
 
-	// ---- Тест: сжатый ответ для plain text (не должен сжиматься, т.к. тип не поддерживается) ----
 	t.Run("plain text response not compressed", func(t *testing.T) {
 		mockStore := storagemocks.NewStorage(t)
-		setupMock(mockStore)
+		// Для plain text также ожидаем вызовы хранилища
+		mockStore.EXPECT().
+			FindByOriginal("https://ya.ru").
+			Return("", storage.ErrNotFound).
+			Once()
+		mockStore.EXPECT().
+			Save(mock.Anything, "https://ya.ru").
+			Return(nil).
+			Once()
 
 		logger := zerolog.Nop()
 		shortener := service.NewShortener(mockStore)
-		handler := NewShortenHandler(shortener, "http://localhost:8080/")
+		handler := NewShortenHandler(shortener, "http://localhost:8080/", zerolog.Nop())
 		router := NewRouter(handler, logger)
 
 		req := httptest.NewRequest(http.MethodPost, "/", bytes.NewBufferString("https://ya.ru"))
@@ -83,14 +89,21 @@ func TestGzipMiddleware(t *testing.T) {
 		assert.NotEqual(t, "gzip", rr.Header().Get("Content-Encoding"))
 	})
 
-	// ---- Тест: сжатый запрос (Content-Encoding: gzip) для JSON эндпоинта ----
 	t.Run("request compressed with Content-Encoding: gzip", func(t *testing.T) {
 		mockStore := storagemocks.NewStorage(t)
-		setupMock(mockStore)
+		// Для сжатого запроса ожидаем те же вызовы
+		mockStore.EXPECT().
+			FindByOriginal("https://ya.ru").
+			Return("", storage.ErrNotFound).
+			Once()
+		mockStore.EXPECT().
+			Save(mock.Anything, "https://ya.ru").
+			Return(nil).
+			Once()
 
 		logger := zerolog.Nop()
 		shortener := service.NewShortener(mockStore)
-		handler := NewShortenHandler(shortener, "http://localhost:8080/")
+		handler := NewShortenHandler(shortener, "http://localhost:8080/", zerolog.Nop())
 		router := NewRouter(handler, logger)
 
 		var buf bytes.Buffer
@@ -111,13 +124,13 @@ func TestGzipMiddleware(t *testing.T) {
 		assert.Equal(t, http.StatusCreated, rr.Code)
 	})
 
-	// ---- Тест: некорректный gzip в запросе ----
 	t.Run("invalid gzip request returns 400", func(t *testing.T) {
 		mockStore := storagemocks.NewStorage(t)
+		// В этом тесте ошибка происходит до вызова хранилища, поэтому никаких ожиданий не регистрируем.
 
 		logger := zerolog.Nop()
 		shortener := service.NewShortener(mockStore)
-		handler := NewShortenHandler(shortener, "http://localhost:8080/")
+		handler := NewShortenHandler(shortener, "http://localhost:8080/", zerolog.Nop())
 		router := NewRouter(handler, logger)
 
 		req := httptest.NewRequest(http.MethodPost, "/api/shorten", bytes.NewBufferString("not gzip"))

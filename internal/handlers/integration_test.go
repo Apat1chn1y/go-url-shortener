@@ -11,6 +11,7 @@ import (
 	storagemocks "github.com/Apat1chn1y/go-url-shortener.git/internal/mocks/storage"
 	"github.com/Apat1chn1y/go-url-shortener.git/internal/service"
 	"github.com/Apat1chn1y/go-url-shortener.git/internal/storage"
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -45,7 +46,7 @@ func TestCreateAndRedirectFileIntegration(t *testing.T) {
 		Once()
 
 	shortener := service.NewShortener(mockStore)
-	handler := handlers.NewShortenHandler(shortener, "http://localhost:8080/")
+	handler := handlers.NewShortenHandler(shortener, "http://localhost:8080/", zerolog.Nop())
 
 	// Создание короткой ссылки для оригинального URL
 	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewBufferString("https://example.com"))
@@ -91,7 +92,7 @@ func TestCreateAndRedirectIntegration(t *testing.T) {
 		Once()
 
 	shortener := service.NewShortener(mockStore)
-	handler := handlers.NewShortenHandler(shortener, "http://localhost:8080/")
+	handler := handlers.NewShortenHandler(shortener, "http://localhost:8080/", zerolog.Nop())
 
 	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewBufferString("https://example.com"))
 	req.Header.Set("Content-Type", "text/plain")
