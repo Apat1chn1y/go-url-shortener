@@ -15,6 +15,7 @@ type Config struct {
 	ServerAddress   string // адрес и порт для запуска HTTP-сервера
 	BaseURL         string // базовый URL для формирования коротких ссылок
 	FileStoragePath string // путь к файлу для хранения данных
+	DatabaseDSN     string // строка подключения к базе данных
 }
 
 // NewConfig загружает конфигурацию в следующем порядке приоритета:
@@ -33,44 +34,47 @@ func NewConfig() *Config {
 	_ = godotenv.Load() // игнорируем ошибку отсутствия файла
 
 	// Определяем флаги командной строки
-	var flagServerAddr, flagBaseURL, flagFile string
-	flag.StringVar(&flagServerAddr, "a", "", "адрес запуска HTTP-сервера (например, localhost:8888)")
-	flag.StringVar(&flagBaseURL, "b", "", "базовый адрес результирующего сокращённого URL (например, http://localhost:8888/)")
+	var flagAddr, flagBase, flagFile, flagDB string
+	flag.StringVar(&flagAddr, "a", "", "адрес сервера")
+	flag.StringVar(&flagBase, "b", "", "базовый URL")
 	flag.StringVar(&flagFile, "f", "", "путь к файлу хранения данных")
+	flag.StringVar(&flagDB, "d", "", "DSN для подключения к PostgreSQL")
 	flag.Parse()
 
-	serverAddr := os.Getenv("SERVER_ADDRESS")
-	if serverAddr == "" {
-		serverAddr = flagServerAddr
+	addr, ok := os.LookupEnv("SERVER_ADDRESS")
+	if !ok {
+		addr = flagAddr
 	}
-	if serverAddr == "" {
-		serverAddr = ":8080"
-	}
-
-	baseURL := os.Getenv("BASE_URL")
-	if baseURL == "" {
-		baseURL = flagBaseURL
-	}
-	if baseURL == "" {
-		baseURL = autoBaseURL(serverAddr)
+	if addr == "" {
+		addr = ":8080"
 	}
 
-	if !strings.HasSuffix(baseURL, "/") {
-		baseURL += "/"
+	base, ok := os.LookupEnv("BASE_URL")
+	if !ok {
+		base = flagBase
+	}
+	if base == "" {
+		base = autoBaseURL(addr)
+	}
+	if !strings.HasSuffix(base, "/") {
+		base += "/"
 	}
 
-	filePath := os.Getenv("FILE_STORAGE_PATH")
-	if filePath == "" {
+	filePath, ok := os.LookupEnv("FILE_STORAGE_PATH")
+	if !ok {
 		filePath = flagFile
 	}
-	if filePath == "" {
-		filePath = "storage.json" // значение по умолчанию
+
+	dbDSN, ok := os.LookupEnv("DATABASE_DSN")
+	if !ok {
+		dbDSN = flagDB
 	}
 
 	return &Config{
-		ServerAddress:   serverAddr,
-		BaseURL:         baseURL,
+		ServerAddress:   addr,
+		BaseURL:         base,
 		FileStoragePath: filePath,
+		DatabaseDSN:     dbDSN,
 	}
 }
 

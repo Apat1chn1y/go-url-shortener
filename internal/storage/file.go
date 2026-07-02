@@ -21,6 +21,7 @@ type fileStorageEntry struct {
 type FileStorage struct {
 	mu       sync.RWMutex
 	data     map[string]string // id -> originalURL
+	urlToID  map[string]string // originalURL -> id
 	filePath string
 }
 
@@ -29,13 +30,32 @@ type FileStorage struct {
 func NewFileStorage(filePath string) (*FileStorage, error) {
 	fs := &FileStorage{
 		data:     make(map[string]string),
+		urlToID:  make(map[string]string),
 		filePath: filePath,
 	}
-	// Загружаем данные из файла, если он существует
 	if err := fs.load(); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return nil, err
 	}
 	return fs, nil
+}
+
+func (fs *FileStorage) Ping() error {
+	// Для файлового хранилища всегда возвращаем nil
+	return nil
+}
+
+// SaveBatch атомарно сохраняет несколько пар id->originalURL в память и файл.
+func (fs *FileStorage) SaveBatch(urls map[string]string) error {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	for id, originalURL := range urls {
+		if _, exists := fs.data[id]; exists {
+			return ErrAlreadyExists
+		}
+		fs.data[id] = originalURL
+		fs.urlToID[originalURL] = id
+	}
+	return fs.save() // перезаписывает файл атомарно
 }
 
 // load читает данные из JSON-файла и заполняет карту.
@@ -56,6 +76,7 @@ func (fs *FileStorage) load() error {
 	defer fs.mu.Unlock()
 	for _, entry := range entries {
 		fs.data[entry.ShortURL] = entry.OriginalURL
+		fs.urlToID[entry.OriginalURL] = entry.ShortURL
 	}
 	return nil
 }
@@ -106,7 +127,17 @@ func (fs *FileStorage) Save(id, originalURL string) error {
 		return ErrAlreadyExists
 	}
 	fs.data[id] = originalURL
+	fs.urlToID[originalURL] = id
 	return fs.save()
+}
+
+func (fs *FileStorage) FindByOriginal(originalURL string) (string, error) {
+	fs.mu.RLock()
+	defer fs.mu.RUnlock()
+	if id, ok := fs.urlToID[originalURL]; ok {
+		return id, nil
+	}
+	return "", ErrNotFound
 }
 
 // Load возвращает оригинальный URL по id.

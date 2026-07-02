@@ -1,0 +1,22 @@
+with-expecter: true
+packages:
+  github.com/Apat1chn1y/go-url-shortener.git/internal/handlers:
+    config:
+      dir: internal/mocks/handlers
+      outpkg: mocks
+      filename: "{{.InterfaceNameSnake}}.go"  # генерирует url_shortener.go
+    interfaces:
+      URLShortener:
+        config:
+          dir: internal/mocks/handlers
+          outpkg: mocks
+  github.com/Apat1chn1y/go-url-shortener.git/internal/storage:
+    config:
+      dir: internal/mocks/storage
+      outpkg: mocks
+      filename: "{{.InterfaceNameSnake}}.go"
+    interfaces:
+      Storage:
+        config:
+          dir: internal/mocks/storage
+          outpkg: mocks

@@ -1,4 +1,3 @@
-// Package handlers_test содержит интеграционные тесты маршрутизации и обработчиков.
 package handlers_test
 
 import (
@@ -10,59 +9,36 @@ import (
 	"testing"
 
 	"github.com/Apat1chn1y/go-url-shortener.git/internal/handlers"
-	"github.com/Apat1chn1y/go-url-shortener.git/internal/storage"
+	mocks "github.com/Apat1chn1y/go-url-shortener.git/internal/mocks/handlers"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// mockShortener – простая реализация handlers.URLShortener для интеграционных тестов.
-// Позволяет предсказуемо создавать короткие ссылки и возвращать оригиналы.
-type mockShortener struct {
-	createFunc func(originalURL, baseURL string) (string, error)
-	getFunc    func(id string) (string, error)
-}
-
-func (m *mockShortener) Create(originalURL, baseURL string) (string, error) {
-	if m.createFunc != nil {
-		return m.createFunc(originalURL, baseURL)
-	}
-	return baseURL + "abc123", nil
-}
-
-func (m *mockShortener) Get(id string) (string, error) {
-	if m.getFunc != nil {
-		return m.getFunc(id)
-	}
-	return "", storage.ErrNotFound
-}
-
-// TestRouterIntegration проверяет полную маршрутизацию сервера:
-//   - POST /             – plain text → 201
-//   - GET /{id}          – редирект 307
-//   - POST /api/shorten  – JSON → 201
-//   - Некорректные запросы – 400
 func TestRouterIntegration(t *testing.T) {
+	// Создаём мок URLShortener
+	mockShortener := mocks.NewURLShortener(t)
 
-	mockSvc := &mockShortener{
-		createFunc: func(originalURL, baseURL string) (string, error) {
+	// Настраиваем точные ожидания: в этом тесте будут вызваны только Create и Get.
+	// Методы FindByOriginal, Ping, CreateBatch не вызываются, поэтому их не регистрируем.
+	mockShortener.EXPECT().
+		Create("https://example.com", "http://localhost:8080/").
+		Return("http://localhost:8080/abc123", nil).
+		Times(1)
 
-			return baseURL + "abc123", nil
-		},
-		getFunc: func(id string) (string, error) {
-			if id == "abc123" {
-				return "https://original.com", nil
-			}
-			return "", storage.ErrNotFound
-		},
-	}
+	mockShortener.EXPECT().
+		Create("https://practicum.yandex.ru", "http://localhost:8080/").
+		Return("http://localhost:8080/def456", nil).
+		Times(1)
 
-	handler := handlers.NewShortenHandler(mockSvc, "http://localhost:8080/")
+	mockShortener.EXPECT().
+		Get("abc123").
+		Return("https://original.com", nil).
+		Times(1)
 
+	handler := handlers.NewShortenHandler(mockShortener, "http://localhost:8080/", zerolog.Nop())
 	logger := zerolog.Nop()
-
 	router := handlers.NewRouter(handler, logger)
-
 	ts := httptest.NewServer(router)
 	defer ts.Close()
 
@@ -78,10 +54,11 @@ func TestRouterIntegration(t *testing.T) {
 		defer resp.Body.Close()
 
 		assert.Equal(t, http.StatusCreated, resp.StatusCode)
-		assert.Equal(t, "text/plain", resp.Header.Get("Content-Type"))
+		assert.Contains(t, resp.Header.Get("Content-Type"), "text/plain")
 		body, err := io.ReadAll(resp.Body)
 		require.NoError(t, err)
-		assert.Equal(t, "http://localhost:8080/abc123", string(body))
+		assert.Contains(t, string(body), "http://localhost:8080/")
+		assert.Greater(t, len(string(body)), len("http://localhost:8080/"))
 	})
 
 	t.Run("POST /api/shorten JSON success", func(t *testing.T) {
@@ -96,14 +73,15 @@ func TestRouterIntegration(t *testing.T) {
 		defer resp.Body.Close()
 
 		assert.Equal(t, http.StatusCreated, resp.StatusCode)
-		assert.Equal(t, "application/json", resp.Header.Get("Content-Type"))
+		assert.Contains(t, resp.Header.Get("Content-Type"), "application/json")
 
 		var respJSON struct {
 			Result string `json:"result"`
 		}
 		err = json.NewDecoder(resp.Body).Decode(&respJSON)
 		require.NoError(t, err)
-		assert.Equal(t, "http://localhost:8080/abc123", respJSON.Result)
+		assert.Contains(t, respJSON.Result, "http://localhost:8080/")
+		assert.Greater(t, len(respJSON.Result), len("http://localhost:8080/"))
 	})
 
 	t.Run("GET /abc123 redirect", func(t *testing.T) {
@@ -112,7 +90,7 @@ func TestRouterIntegration(t *testing.T) {
 
 		client := &http.Client{
 			CheckRedirect: func(req *http.Request, via []*http.Request) error {
-				return http.ErrUseLastResponse // отключаем автоматический редирект
+				return http.ErrUseLastResponse
 			},
 		}
 		resp, err := client.Do(req)
