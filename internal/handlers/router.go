@@ -1,4 +1,3 @@
-// Package handlers предоставляет HTTP-обработчики и маршрутизацию для сервиса сокращения URL.
 package handlers
 
 import (
@@ -8,29 +7,24 @@ import (
 	"github.com/rs/zerolog"
 )
 
-// NewRouter создаёт и настраивает маршрутизатор chi со всеми необходимыми эндпоинтами.
-// Принимает подготовленный обработчик ShortenHandler и возвращает http.Handler.
-func NewRouter(h *ShortenHandler, logger zerolog.Logger) http.Handler {
+func NewRouter(h *ShortenHandler, logger zerolog.Logger, authKey []byte) http.Handler {
 	r := chi.NewRouter()
-	// Подключаем сжатие
 	r.Use(GzipMiddleware)
-	// Подключает логгирование
 	r.Use(LoggingMiddleware(logger))
+	r.Use(AuthMiddleware(authKey, logger)) // добавляем аутентификацию
 
-	// Регистрируем единственные разрешённые маршруты
 	r.Post("/", h.Create)
 	r.Get("/{id}", h.Redirect)
 	r.Post("/api/shorten", h.HandleShortenJSON)
-	r.Get("/ping", h.Ping)
 	r.Post("/api/shorten/batch", h.HandleBatchShorten)
+	r.Get("/ping", h.Ping)
+	r.Get("/api/user/urls", h.GetUserURLs) // новый маршрут
 
-	// Перехват всех остальных запросов (неправильный метод, путь, отсутствие id)
 	r.NotFound(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Bad Request", http.StatusBadRequest)
 	})
 	r.MethodNotAllowed(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Bad Request", http.StatusBadRequest)
 	})
-
 	return r
 }

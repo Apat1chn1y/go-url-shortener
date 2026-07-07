@@ -1,22 +1,26 @@
-// Package storage предоставляет интерфейс и реализации хранилища URL.
 package storage
 
 import (
 	"sync"
 )
 
-// InMemoryStorage реализует Storage с использованием map и мьютекса.
-type InMemoryStorage struct {
-	mu      sync.RWMutex
-	data    map[string]string // id -> originalURL
-	urlToID map[string]string // originalURL -> id
+type urlEntry struct {
+	originalURL string
+	userID      string
 }
 
-// NewInMemoryStorage создаёт новый экземпляр in-memory хранилища.
+type InMemoryStorage struct {
+	mu       sync.RWMutex
+	data     map[string]urlEntry // id -> entry
+	urlToID  map[string]string   // originalURL -> id
+	userURLs map[string][]string // userID -> []id
+}
+
 func NewInMemoryStorage() *InMemoryStorage {
 	return &InMemoryStorage{
-		data:    make(map[string]string),
-		urlToID: make(map[string]string),
+		data:     make(map[string]urlEntry),
+		urlToID:  make(map[string]string),
+		userURLs: make(map[string][]string),
 	}
 }
 
@@ -24,6 +28,27 @@ func (s *InMemoryStorage) Ping() error {
 	return nil
 }
 
+// Save – обратная совместимость.
+func (s *InMemoryStorage) Save(id, originalURL string) error {
+	return s.SaveForUser(id, originalURL, "")
+}
+
+// SaveForUser сохраняет пару с привязкой к пользователю.
+func (s *InMemoryStorage) SaveForUser(id, originalURL, userID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, exists := s.data[id]; exists {
+		return ErrAlreadyExists
+	}
+	s.data[id] = urlEntry{originalURL: originalURL, userID: userID}
+	s.urlToID[originalURL] = id
+	if userID != "" {
+		s.userURLs[userID] = append(s.userURLs[userID], id)
+	}
+	return nil
+}
+
+// SaveBatch – без привязки к пользователю.
 func (s *InMemoryStorage) SaveBatch(urls map[string]string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -31,22 +56,9 @@ func (s *InMemoryStorage) SaveBatch(urls map[string]string) error {
 		if _, exists := s.data[id]; exists {
 			return ErrAlreadyExists
 		}
-		s.data[id] = originalURL
+		s.data[id] = urlEntry{originalURL: originalURL, userID: ""}
 		s.urlToID[originalURL] = id
 	}
-	return nil
-}
-
-// Save сохраняет пару id -> originalURL.
-// Возвращает ErrAlreadyExists, если id уже занят.
-func (s *InMemoryStorage) Save(id, originalURL string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if _, exists := s.data[id]; exists {
-		return ErrAlreadyExists
-	}
-	s.data[id] = originalURL
-	s.urlToID[originalURL] = id
 	return nil
 }
 
@@ -59,14 +71,52 @@ func (s *InMemoryStorage) FindByOriginal(originalURL string) (string, error) {
 	return "", ErrNotFound
 }
 
-// Load возвращает оригинальный URL по id.
-// Возвращает ErrNotFound, если id не найден.
 func (s *InMemoryStorage) Load(id string) (string, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	original, ok := s.data[id]
+	entry, ok := s.data[id]
 	if !ok {
 		return "", ErrNotFound
 	}
-	return original, nil
+	return entry.originalURL, nil
+}
+
+// GetUserURLs возвращает все URL пользователя.
+func (s *InMemoryStorage) GetUserURLs(userID string) ([]UserURL, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	ids, ok := s.userURLs[userID]
+	if !ok || len(ids) == 0 {
+		return []UserURL{}, nil
+	}
+	result := make([]UserURL, 0, len(ids))
+	for _, id := range ids {
+		entry, exists := s.data[id]
+		if !exists {
+			continue
+		}
+		result = append(result, UserURL{
+			ID:          id,
+			ShortURL:    "", // заполняется в хендлере
+			OriginalURL: entry.originalURL,
+		})
+	}
+	return result, nil
+}
+
+// SaveBatchForUser сохраняет несколько записей с привязкой к одному пользователю.
+func (s *InMemoryStorage) SaveBatchForUser(urls map[string]string, userID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for id, originalURL := range urls {
+		if _, exists := s.data[id]; exists {
+			return ErrAlreadyExists
+		}
+		s.data[id] = urlEntry{originalURL: originalURL, userID: userID}
+		s.urlToID[originalURL] = id
+		if userID != "" {
+			s.userURLs[userID] = append(s.userURLs[userID], id)
+		}
+	}
+	return nil
 }

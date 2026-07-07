@@ -10,12 +10,12 @@ import (
 	"github.com/joho/godotenv"
 )
 
-// Config хранит параметры запуска сервиса.
 type Config struct {
-	ServerAddress   string // адрес и порт для запуска HTTP-сервера
-	BaseURL         string // базовый URL для формирования коротких ссылок
-	FileStoragePath string // путь к файлу для хранения данных
+	ServerAddress   string
+	BaseURL         string
+	FileStoragePath string
 	DatabaseDSN     string // строка подключения к базе данных
+	AuthKey         []byte
 }
 
 // NewConfig загружает конфигурацию в следующем порядке приоритета:
@@ -70,11 +70,20 @@ func NewConfig() *Config {
 		dbDSN = flagDB
 	}
 
+	keyStr, ok := os.LookupEnv("AUTH_KEY")
+	var authKey []byte
+	if !ok {
+		authKey = []byte("default-secret-key")
+	} else {
+		authKey = []byte(keyStr)
+	}
+
 	return &Config{
 		ServerAddress:   addr,
 		BaseURL:         base,
 		FileStoragePath: filePath,
 		DatabaseDSN:     dbDSN,
+		AuthKey:         authKey,
 	}
 }
 
