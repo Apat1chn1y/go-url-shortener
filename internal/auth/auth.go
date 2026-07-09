@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"net/http"
+	"strings"
 )
 
 const (
@@ -58,7 +59,7 @@ func GetUserID(r *http.Request, key []byte) (string, error) {
 	if err != nil {
 		return "", nil // куки нет
 	}
-	parts := splitCookieValue(cookie.Value)
+	parts := strings.SplitN(cookie.Value, "|", 2)
 	if len(parts) != 2 {
 		return "", errors.New("invalid cookie format")
 	}
@@ -67,14 +68,4 @@ func GetUserID(r *http.Request, key []byte) (string, error) {
 		return "", errors.New("invalid signature")
 	}
 	return userID, nil
-}
-
-// splitCookieValue разделяет значение куки на userID и подпись.
-func splitCookieValue(value string) []string {
-	for i := 0; i < len(value); i++ {
-		if value[i] == '|' {
-			return []string{value[:i], value[i+1:]}
-		}
-	}
-	return nil
 }

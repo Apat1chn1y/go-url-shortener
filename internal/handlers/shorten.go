@@ -44,15 +44,14 @@ func (h *ShortenHandler) DeleteUserURLs(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "Bad Request: empty list", http.StatusBadRequest)
 		return
 	}
-	if err := h.shortener.DeleteUserURLs(userID, ids); err != nil {
-		if errors.Is(err, storage.ErrForbidden) || errors.Is(err, storage.ErrNotFound) {
-			http.Error(w, "Forbidden or not found", http.StatusForbidden)
-			return
+
+	// Асинхронное удаление
+	go func() {
+		if err := h.shortener.DeleteUserURLs(userID, ids); err != nil {
+			h.logger.Error().Err(err).Str("user_id", userID).Interface("ids", ids).Msg("failed to delete URLs")
 		}
-		h.logger.Error().Err(err).Msg("failed to delete URLs")
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		return
-	}
+	}()
+
 	w.WriteHeader(http.StatusAccepted)
 }
 

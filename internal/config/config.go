@@ -3,7 +3,10 @@
 package config
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"flag"
+	"log"
 	"os"
 	"strings"
 
@@ -16,6 +19,17 @@ type Config struct {
 	FileStoragePath string
 	DatabaseDSN     string // строка подключения к базе данных
 	AuthKey         []byte
+}
+
+// generateRandomKey создаёт случайный 32-байтовый ключ в base64.
+func generateRandomKey() []byte {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		log.Fatal("failed to generate random auth key:", err)
+	}
+	key := make([]byte, base64.URLEncoding.EncodedLen(len(b)))
+	base64.URLEncoding.Encode(key, b)
+	return key
 }
 
 // NewConfig загружает конфигурацию в следующем порядке приоритета:
@@ -70,10 +84,11 @@ func NewConfig() *Config {
 		dbDSN = flagDB
 	}
 
-	keyStr, ok := os.LookupEnv("AUTH_KEY")
 	var authKey []byte
+	keyStr, ok := os.LookupEnv("AUTH_KEY")
 	if !ok {
-		authKey = []byte("default-secret-key")
+		log.Println("WARNING: AUTH_KEY not set, generating random key. All existing user cookies will become invalid after restart.")
+		authKey = generateRandomKey()
 	} else {
 		authKey = []byte(keyStr)
 	}

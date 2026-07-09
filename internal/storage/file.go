@@ -215,29 +215,17 @@ func (fs *FileStorage) GetUserURLs(userID string) ([]UserURL, error) {
 func (fs *FileStorage) DeleteUserURLs(userID string, ids []string) error {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
-
-	// Проверяем существование и принадлежность
 	for _, id := range ids {
-		entry, exists := fs.data[id]
-		if !exists {
-			return ErrNotFound
-		}
-		if entry.userID != userID {
-			return ErrForbidden
-		}
-	}
-
-	// Проставляем флаг deleted и удаляем из списка пользователя
-	for _, id := range ids {
-		entry := fs.data[id]
-		entry.deleted = true
-		fs.data[id] = entry
-		if userID != "" {
-			list := fs.userURLs[userID]
-			for i, v := range list {
-				if v == id {
-					fs.userURLs[userID] = append(list[:i], list[i+1:]...)
-					break
+		if entry, exists := fs.data[id]; exists && entry.userID == userID {
+			entry.deleted = true
+			fs.data[id] = entry
+			if userID != "" {
+				list := fs.userURLs[userID]
+				for i, v := range list {
+					if v == id {
+						fs.userURLs[userID] = append(list[:i], list[i+1:]...)
+						break
+					}
 				}
 			}
 		}

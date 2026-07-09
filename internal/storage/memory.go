@@ -128,22 +128,17 @@ func (s *InMemoryStorage) DeleteUserURLs(userID string, ids []string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, id := range ids {
-		entry, exists := s.data[id]
-		if !exists {
-			return ErrNotFound
-		}
-		if entry.userID != userID {
-			return ErrForbidden
-		}
-		entry.deleted = true
-		s.data[id] = entry
-		// Удаляем из списка пользователя
-		if userID != "" {
-			list := s.userURLs[userID]
-			for i, v := range list {
-				if v == id {
-					s.userURLs[userID] = append(list[:i], list[i+1:]...)
-					break
+		if entry, exists := s.data[id]; exists && entry.userID == userID {
+			entry.deleted = true
+			s.data[id] = entry
+			// Удаляем из списка пользователя
+			if userID != "" {
+				list := s.userURLs[userID]
+				for i, v := range list {
+					if v == id {
+						s.userURLs[userID] = append(list[:i], list[i+1:]...)
+						break
+					}
 				}
 			}
 		}

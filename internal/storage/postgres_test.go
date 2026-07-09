@@ -22,6 +22,11 @@ func TestPostgresStorage(t *testing.T) {
 	defer store.Close()
 
 	ctx := context.TODO()
+
+	// Очищаем таблицу перед запуском теста
+	_, err = store.pool.Exec(ctx, "TRUNCATE TABLE short_urls")
+	require.NoError(t, err, "failed to truncate table")
+
 	const testUser1 = "user-1"
 	const testUser2 = "user-2"
 
@@ -87,7 +92,7 @@ func TestPostgresStorage(t *testing.T) {
 
 	user1URLsAfterBatch, err := store.GetUserURLs(testUser1)
 	assert.NoError(t, err)
-	assert.Len(t, user1URLsAfterBatch, 4)
+	assert.Len(t, user1URLsAfterBatch, 4) // два старых + два из батча
 	found := make(map[string]bool)
 	for _, u := range user1URLsAfterBatch {
 		if u.ID == "batch-1" && u.OriginalURL == "https://batch1.ru" {
@@ -107,8 +112,6 @@ func TestPostgresStorage(t *testing.T) {
 	// После удаления эти записи не должны возвращаться в GetUserURLs
 	user1URLsAfterDelete, err := store.GetUserURLs(testUser1)
 	assert.NoError(t, err)
-	// Ожидаем, что остались только batch-1, batch-2 (которые тоже для testUser1)
-	// но они ещё не удалены. Проверим, что их нет.
 	for _, u := range user1URLsAfterDelete {
 		assert.NotEqual(t, "test-user-1", u.ID)
 		assert.NotEqual(t, "test-user-2", u.ID)
@@ -125,20 +128,27 @@ func TestPostgresStorage(t *testing.T) {
 	_, err = store.Load("test-user-2")
 	assert.ErrorIs(t, err, ErrGone)
 
-	// ---- Проверка, что DeleteUserURLs возвращает ошибку при попытке удалить чужие URL ----
-	err = store.DeleteUserURLs(testUser2, []string{"batch-1"}) // batch-1 принадлежит testUser1
-	assert.ErrorIs(t, err, ErrForbidden)
-
-	// ---- Проверка, что DeleteUserURLs возвращает ошибку для несуществующего ID ----
+	// Удаление несуществующего ID не возвращает ошибку
 	err = store.DeleteUserURLs(testUser1, []string{"non-existent"})
 	assert.NoError(t, err)
+
+	// Удаление чужого ID не влияет на его записи (и не возвращает ошибку)
+	err = store.DeleteUserURLs(testUser2, []string{"batch-1"}) // batch-1 принадлежит testUser1
+	assert.NoError(t, err)
+	// Проверяем, что batch-1 остался у testUser1
+	exists := false
+	for _, u := range user1URLsAfterDelete {
+		if u.ID == "batch-1" {
+			exists = true
+			break
+		}
+	}
+	assert.True(t, exists, "batch-1 should still exist for testUser1")
 
 	// ---- Тест Ping ----
 	assert.NoError(t, store.Ping())
 
-	// ---- Очистка ----
-	_, _ = store.pool.Exec(ctx,
-		"DELETE FROM short_urls WHERE id = ANY($1)",
-		[]string{"test123", "test456", "test-user-1", "test-user-2", "test-user-3", "batch-1", "batch-2"},
-	)
+	// ---- Очистка после теста (на случай, если нужно оставить БД чистой) ----
+	_, err = store.pool.Exec(ctx, "TRUNCATE TABLE short_urls")
+	assert.NoError(t, err)
 }

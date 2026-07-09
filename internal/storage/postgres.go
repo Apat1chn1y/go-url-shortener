@@ -25,51 +25,16 @@ type PostgresStorage struct {
 	pool *pgxpool.Pool
 }
 
+// DeleteUserURLs помечает URL как удалённые для данного пользователя.
 func (s *PostgresStorage) DeleteUserURLs(userID string, ids []string) error {
 	if len(ids) == 0 {
 		return nil
 	}
-
-	var existingIDs []string
-	query := `SELECT id FROM short_urls WHERE id = ANY($1)`
-	rows, err := s.pool.Query(context.TODO(), query, ids)
+	_, err := s.pool.Exec(context.TODO(),
+		"UPDATE short_urls SET is_deleted = TRUE WHERE id = ANY($1) AND user_id = $2",
+		ids, userID)
 	if err != nil {
-		return fmt.Errorf("query existing: %w", err)
-	}
-	defer rows.Close()
-
-	existingMap := make(map[string]bool)
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			return fmt.Errorf("scan: %w", err)
-		}
-		existingMap[id] = true
-		existingIDs = append(existingIDs, id)
-	}
-	if err := rows.Err(); err != nil {
-		return fmt.Errorf("rows: %w", err)
-	}
-
-	// Проверяем принадлежность каждого существующего ID
-	for _, id := range existingIDs {
-		var owner string
-		err := s.pool.QueryRow(context.TODO(),
-			"SELECT user_id FROM short_urls WHERE id = $1", id).Scan(&owner)
-		if err != nil {
-			return fmt.Errorf("get owner: %w", err)
-		}
-		if owner != userID {
-			return ErrForbidden
-		}
-	}
-
-	if len(existingIDs) > 0 {
-		updateQuery := `UPDATE short_urls SET is_deleted = TRUE WHERE id = ANY($1)`
-		_, err := s.pool.Exec(context.TODO(), updateQuery, existingIDs)
-		if err != nil {
-			return fmt.Errorf("update: %w", err)
-		}
+		return fmt.Errorf("update: %w", err)
 	}
 	return nil
 }
