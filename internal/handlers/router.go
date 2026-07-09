@@ -18,7 +18,8 @@ func NewRouter(h *ShortenHandler, logger zerolog.Logger, authKey []byte) http.Ha
 	r.Post("/api/shorten", h.HandleShortenJSON)
 	r.Post("/api/shorten/batch", h.HandleBatchShorten)
 	r.Get("/ping", h.Ping)
-	r.Get("/api/user/urls", h.GetUserURLs) // новый маршрут
+	r.Get("/api/user/urls", h.GetUserURLs)
+	r.Delete("/api/user/urls", h.DeleteUserURLs)
 
 	r.NotFound(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Bad Request", http.StatusBadRequest)

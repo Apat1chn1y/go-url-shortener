@@ -19,12 +19,41 @@ type URLShortener interface {
 	CreateBatch(items []service.BatchItem, baseURL, userID string) ([]service.BatchResult, error)
 	FindByOriginal(originalURL string) (string, error)
 	GetUserURLs(userID string) ([]storage.UserURL, error)
+	DeleteUserURLs(userID string, ids []string) error
 }
 
 type ShortenHandler struct {
 	shortener URLShortener
 	baseURL   string
 	logger    zerolog.Logger
+}
+
+// DeleteUserURLs обрабатывает DELETE /api/user/urls.
+func (h *ShortenHandler) DeleteUserURLs(w http.ResponseWriter, r *http.Request) {
+	userID := GetUserIDFromContext(r)
+	if userID == "" {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	var ids []string
+	if err := json.NewDecoder(r.Body).Decode(&ids); err != nil {
+		http.Error(w, "Bad Request: invalid JSON", http.StatusBadRequest)
+		return
+	}
+	if len(ids) == 0 {
+		http.Error(w, "Bad Request: empty list", http.StatusBadRequest)
+		return
+	}
+	if err := h.shortener.DeleteUserURLs(userID, ids); err != nil {
+		if errors.Is(err, storage.ErrForbidden) || errors.Is(err, storage.ErrNotFound) {
+			http.Error(w, "Forbidden or not found", http.StatusForbidden)
+			return
+		}
+		h.logger.Error().Err(err).Msg("failed to delete URLs")
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusAccepted)
 }
 
 func NewShortenHandler(shortener URLShortener, baseURL string, logger zerolog.Logger) *ShortenHandler {
@@ -82,6 +111,10 @@ func (h *ShortenHandler) Redirect(w http.ResponseWriter, r *http.Request) {
 	}
 	originalURL, err := h.shortener.Get(id)
 	if err != nil {
+		if errors.Is(err, storage.ErrGone) {
+			http.Error(w, http.StatusText(http.StatusGone), http.StatusGone)
+			return
+		}
 		http.Error(w, http.StatusText(http.StatusBadRequest)+": URL not found", http.StatusBadRequest)
 		return
 	}

@@ -25,6 +25,55 @@ type PostgresStorage struct {
 	pool *pgxpool.Pool
 }
 
+func (s *PostgresStorage) DeleteUserURLs(userID string, ids []string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+
+	var existingIDs []string
+	query := `SELECT id FROM short_urls WHERE id = ANY($1)`
+	rows, err := s.pool.Query(context.TODO(), query, ids)
+	if err != nil {
+		return fmt.Errorf("query existing: %w", err)
+	}
+	defer rows.Close()
+
+	existingMap := make(map[string]bool)
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return fmt.Errorf("scan: %w", err)
+		}
+		existingMap[id] = true
+		existingIDs = append(existingIDs, id)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("rows: %w", err)
+	}
+
+	// Проверяем принадлежность каждого существующего ID
+	for _, id := range existingIDs {
+		var owner string
+		err := s.pool.QueryRow(context.TODO(),
+			"SELECT user_id FROM short_urls WHERE id = $1", id).Scan(&owner)
+		if err != nil {
+			return fmt.Errorf("get owner: %w", err)
+		}
+		if owner != userID {
+			return ErrForbidden
+		}
+	}
+
+	if len(existingIDs) > 0 {
+		updateQuery := `UPDATE short_urls SET is_deleted = TRUE WHERE id = ANY($1)`
+		_, err := s.pool.Exec(context.TODO(), updateQuery, existingIDs)
+		if err != nil {
+			return fmt.Errorf("update: %w", err)
+		}
+	}
+	return nil
+}
+
 // SaveForUser сохраняет пару с привязкой к пользователю.
 func (s *PostgresStorage) SaveForUser(id, originalURL, userID string) error {
 	_, err := s.pool.Exec(context.TODO(),
@@ -79,7 +128,7 @@ func (s *PostgresStorage) SaveBatchForUser(urls map[string]string, userID string
 // GetUserURLs возвращает все URL пользователя.
 func (s *PostgresStorage) GetUserURLs(userID string) ([]UserURL, error) {
 	rows, err := s.pool.Query(context.TODO(),
-		"SELECT id, original_url FROM short_urls WHERE user_id = $1", userID)
+		"SELECT id, original_url FROM short_urls WHERE user_id = $1 AND is_deleted = FALSE", userID)
 	if err != nil {
 		return nil, fmt.Errorf("query: %w", err)
 	}
@@ -199,13 +248,17 @@ func (s *PostgresStorage) SaveBatch(urls map[string]string) error {
 // Load возвращает оригинальный URL по id. Возвращает ErrNotFound, если запись отсутствует.
 func (s *PostgresStorage) Load(id string) (string, error) {
 	var originalURL string
+	var deleted bool
 	err := s.pool.QueryRow(context.TODO(),
-		"SELECT original_url FROM short_urls WHERE id = $1", id).Scan(&originalURL)
+		"SELECT original_url, is_deleted FROM short_urls WHERE id = $1", id).Scan(&originalURL, &deleted)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return "", ErrNotFound
 		}
 		return "", fmt.Errorf("select: %w", err)
+	}
+	if deleted {
+		return "", ErrGone
 	}
 	return originalURL, nil
 }
@@ -214,7 +267,7 @@ func (s *PostgresStorage) Load(id string) (string, error) {
 func (s *PostgresStorage) FindByOriginal(originalURL string) (string, error) {
 	var id string
 	err := s.pool.QueryRow(context.TODO(),
-		"SELECT id FROM short_urls WHERE original_url = $1", originalURL).Scan(&id)
+		"SELECT id FROM short_urls WHERE original_url = $1 AND is_deleted = FALSE", originalURL).Scan(&id)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return "", ErrNotFound

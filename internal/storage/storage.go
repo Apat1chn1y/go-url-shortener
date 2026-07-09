@@ -7,6 +7,8 @@ var (
 	ErrNotFound             = errors.New("URL not found")
 	ErrAlreadyExists        = errors.New("ID already exists")
 	ErrOriginalURLDuplicate = errors.New("original URL already exists")
+	ErrGone                 = errors.New("URL has been deleted")
+	ErrForbidden            = errors.New("access denied")
 )
 
 // UserURL содержит данные об URL для ответа пользователю.
@@ -14,6 +16,7 @@ type UserURL struct {
 	ID          string `json:"-"` // внутренний идентификатор (не возвращается в JSON)
 	ShortURL    string `json:"short_url"`
 	OriginalURL string `json:"original_url"`
+	DeletedFlag bool   `json:"-"` // флаг удаления (не возвращается в JSON)
 }
 
 // Storage определяет контракт для хранилища.
@@ -41,4 +44,7 @@ type Storage interface {
 
 	// GetUserURLs возвращает все URL, принадлежащие пользователю.
 	GetUserURLs(userID string) ([]UserURL, error)
+
+	// DeleteUserURLs помечает URL как удалённые для данного пользователя.
+	DeleteUserURLs(userID string, ids []string) error
 }

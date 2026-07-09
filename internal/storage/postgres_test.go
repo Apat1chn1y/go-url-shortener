@@ -33,7 +33,7 @@ func TestPostgresStorage(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, "https://example.com", url)
 
-	// Повторное сохранение того же ID – ошибка ErrAlreadyExists
+	// Повторное сохранение того же ID – ошибка
 	err = store.Save("test123", "https://example.com")
 	assert.ErrorIs(t, err, ErrAlreadyExists)
 
@@ -50,13 +50,11 @@ func TestPostgresStorage(t *testing.T) {
 	err = store.SaveForUser("test-user-1", "https://user1.ru", testUser1)
 	require.NoError(t, err)
 
-	// Проверяем, что можно загрузить
 	loaded, err := store.Load("test-user-1")
 	assert.NoError(t, err)
 	assert.Equal(t, "https://user1.ru", loaded)
 
 	// ---- Тест GetUserURLs ----
-	// Сохраняем ещё несколько URL для разных пользователей
 	err = store.SaveForUser("test-user-2", "https://user2.ru", testUser1)
 	require.NoError(t, err)
 	err = store.SaveForUser("test-user-3", "https://user3.ru", testUser2)
@@ -65,8 +63,6 @@ func TestPostgresStorage(t *testing.T) {
 	user1URLs, err := store.GetUserURLs(testUser1)
 	assert.NoError(t, err)
 	assert.Len(t, user1URLs, 2)
-
-	// Проверяем, что возвращены правильные URL (порядок не гарантирован, поэтому используем мапу)
 	expected := map[string]string{
 		"test-user-1": "https://user1.ru",
 		"test-user-2": "https://user2.ru",
@@ -89,12 +85,9 @@ func TestPostgresStorage(t *testing.T) {
 	err = store.SaveBatchForUser(batch, testUser1)
 	require.NoError(t, err)
 
-	// Проверяем, что записи появились в GetUserURLs
 	user1URLsAfterBatch, err := store.GetUserURLs(testUser1)
 	assert.NoError(t, err)
-	assert.Len(t, user1URLsAfterBatch, 4) // два старых + два из батча
-
-	// Проверяем конкретные добавленные
+	assert.Len(t, user1URLsAfterBatch, 4)
 	found := make(map[string]bool)
 	for _, u := range user1URLsAfterBatch {
 		if u.ID == "batch-1" && u.OriginalURL == "https://batch1.ru" {
@@ -107,11 +100,45 @@ func TestPostgresStorage(t *testing.T) {
 	assert.True(t, found["batch-1"], "batch-1 not found")
 	assert.True(t, found["batch-2"], "batch-2 not found")
 
+	// ---- Тест DeleteUserURLs ----
+	err = store.DeleteUserURLs(testUser1, []string{"test-user-1", "test-user-2"})
+	assert.NoError(t, err)
+
+	// После удаления эти записи не должны возвращаться в GetUserURLs
+	user1URLsAfterDelete, err := store.GetUserURLs(testUser1)
+	assert.NoError(t, err)
+	// Ожидаем, что остались только batch-1, batch-2 (которые тоже для testUser1)
+	// но они ещё не удалены. Проверим, что их нет.
+	for _, u := range user1URLsAfterDelete {
+		assert.NotEqual(t, "test-user-1", u.ID)
+		assert.NotEqual(t, "test-user-2", u.ID)
+	}
+	// Запись для testUser2 не должна быть затронута
+	user2URLsAfterDelete, err := store.GetUserURLs(testUser2)
+	assert.NoError(t, err)
+	assert.Len(t, user2URLsAfterDelete, 1)
+	assert.Equal(t, "test-user-3", user2URLsAfterDelete[0].ID)
+
+	// Проверяем, что удалённые записи при Load возвращают ErrGone
+	_, err = store.Load("test-user-1")
+	assert.ErrorIs(t, err, ErrGone)
+	_, err = store.Load("test-user-2")
+	assert.ErrorIs(t, err, ErrGone)
+
+	// ---- Проверка, что DeleteUserURLs возвращает ошибку при попытке удалить чужие URL ----
+	err = store.DeleteUserURLs(testUser2, []string{"batch-1"}) // batch-1 принадлежит testUser1
+	assert.ErrorIs(t, err, ErrForbidden)
+
+	// ---- Проверка, что DeleteUserURLs возвращает ошибку для несуществующего ID ----
+	err = store.DeleteUserURLs(testUser1, []string{"non-existent"})
+	assert.NoError(t, err)
+
 	// ---- Тест Ping ----
 	assert.NoError(t, store.Ping())
 
 	// ---- Очистка ----
 	_, _ = store.pool.Exec(ctx,
-		"DELETE FROM short_urls WHERE id IN ($1, $2, $3, $4, $5, $6, $7, $8)",
-		"test123", "test456", "test-user-1", "test-user-2", "test-user-3", "batch-1", "batch-2", "test-user-1")
+		"DELETE FROM short_urls WHERE id = ANY($1)",
+		[]string{"test123", "test456", "test-user-1", "test-user-2", "test-user-3", "batch-1", "batch-2"},
+	)
 }

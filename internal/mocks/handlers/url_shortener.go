@@ -139,6 +139,53 @@ func (_c *MockURLShortener_CreateBatch_Call) RunAndReturn(run func([]service.Bat
 	return _c
 }
 
+// DeleteUserURLs provides a mock function with given fields: userID, ids
+func (_m *MockURLShortener) DeleteUserURLs(userID string, ids []string) error {
+	ret := _m.Called(userID, ids)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DeleteUserURLs")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(string, []string) error); ok {
+		r0 = rf(userID, ids)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockURLShortener_DeleteUserURLs_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DeleteUserURLs'
+type MockURLShortener_DeleteUserURLs_Call struct {
+	*mock.Call
+}
+
+// DeleteUserURLs is a helper method to define mock.On call
+//   - userID string
+//   - ids []string
+func (_e *MockURLShortener_Expecter) DeleteUserURLs(userID interface{}, ids interface{}) *MockURLShortener_DeleteUserURLs_Call {
+	return &MockURLShortener_DeleteUserURLs_Call{Call: _e.mock.On("DeleteUserURLs", userID, ids)}
+}
+
+func (_c *MockURLShortener_DeleteUserURLs_Call) Run(run func(userID string, ids []string)) *MockURLShortener_DeleteUserURLs_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(string), args[1].([]string))
+	})
+	return _c
+}
+
+func (_c *MockURLShortener_DeleteUserURLs_Call) Return(_a0 error) *MockURLShortener_DeleteUserURLs_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockURLShortener_DeleteUserURLs_Call) RunAndReturn(run func(string, []string) error) *MockURLShortener_DeleteUserURLs_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // FindByOriginal provides a mock function with given fields: originalURL
 func (_m *MockURLShortener) FindByOriginal(originalURL string) (string, error) {
 	ret := _m.Called(originalURL)

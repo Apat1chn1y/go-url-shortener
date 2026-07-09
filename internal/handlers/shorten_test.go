@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -547,5 +548,119 @@ func TestShortenHandler_GetUserURLs(t *testing.T) {
 
 		assert.Equal(t, http.StatusInternalServerError, rr.Code)
 		assert.Contains(t, rr.Body.String(), "Internal Server Error")
+	})
+}
+
+// TestShortenHandler_Redirect_Gone проверяет, что удалённый URL возвращает 410.
+func TestShortenHandler_Redirect_Gone(t *testing.T) {
+	logger := zerolog.Nop()
+	mockStore := storagemocks.NewMockStorage(t)
+	mockStore.EXPECT().Load("deleted123").Return("", storage.ErrGone).Once()
+
+	shortener := service.NewShortener(mockStore)
+	handler := NewShortenHandler(shortener, "http://localhost:8080/", logger)
+
+	req := NewRequestWithUserID(http.MethodGet, "/deleted123", nil)
+	rr := httptest.NewRecorder()
+	handler.Redirect(rr, req)
+
+	assert.Equal(t, http.StatusGone, rr.Code)
+	assert.Contains(t, rr.Body.String(), "Gone")
+}
+
+// TestShortenHandler_DeleteUserURLs проверяет эндпоинт DELETE /api/user/urls.
+func TestShortenHandler_DeleteUserURLs(t *testing.T) {
+	logger := zerolog.Nop()
+
+	t.Run("success", func(t *testing.T) {
+		mockStore := storagemocks.NewMockStorage(t)
+		mockStore.EXPECT().DeleteUserURLs(TestUserID, []string{"abc123", "def456"}).Return(nil).Once()
+
+		shortener := service.NewShortener(mockStore)
+		handler := NewShortenHandler(shortener, "http://localhost:8080/", logger)
+
+		body := []byte(`["abc123", "def456"]`)
+		req := NewRequestWithUserID(http.MethodDelete, "/api/user/urls", body)
+		req.Header.Set("Content-Type", "application/json")
+		rr := httptest.NewRecorder()
+		handler.DeleteUserURLs(rr, req)
+
+		assert.Equal(t, http.StatusAccepted, rr.Code)
+	})
+
+	t.Run("unauthorized - no userID", func(t *testing.T) {
+		mockStore := storagemocks.NewMockStorage(t)
+		shortener := service.NewShortener(mockStore)
+		handler := NewShortenHandler(shortener, "http://localhost:8080/", logger)
+
+		body := []byte(`["abc123"]`)
+		req := httptest.NewRequest(http.MethodDelete, "/api/user/urls", bytes.NewBuffer(body))
+		req.Header.Set("Content-Type", "application/json")
+		rr := httptest.NewRecorder()
+		handler.DeleteUserURLs(rr, req)
+
+		assert.Equal(t, http.StatusUnauthorized, rr.Code)
+	})
+
+	t.Run("invalid JSON", func(t *testing.T) {
+		mockStore := storagemocks.NewMockStorage(t)
+		shortener := service.NewShortener(mockStore)
+		handler := NewShortenHandler(shortener, "http://localhost:8080/", logger)
+
+		body := []byte(`not json`)
+		req := NewRequestWithUserID(http.MethodDelete, "/api/user/urls", body)
+		req.Header.Set("Content-Type", "application/json")
+		rr := httptest.NewRecorder()
+		handler.DeleteUserURLs(rr, req)
+
+		assert.Equal(t, http.StatusBadRequest, rr.Code)
+		assert.Contains(t, rr.Body.String(), "invalid JSON")
+	})
+
+	t.Run("empty list", func(t *testing.T) {
+		mockStore := storagemocks.NewMockStorage(t)
+		shortener := service.NewShortener(mockStore)
+		handler := NewShortenHandler(shortener, "http://localhost:8080/", logger)
+
+		body := []byte(`[]`)
+		req := NewRequestWithUserID(http.MethodDelete, "/api/user/urls", body)
+		req.Header.Set("Content-Type", "application/json")
+		rr := httptest.NewRecorder()
+		handler.DeleteUserURLs(rr, req)
+
+		assert.Equal(t, http.StatusBadRequest, rr.Code)
+		assert.Contains(t, rr.Body.String(), "empty list")
+	})
+
+	t.Run("forbidden - URL belongs to another user", func(t *testing.T) {
+		mockStore := storagemocks.NewMockStorage(t)
+		mockStore.EXPECT().DeleteUserURLs(TestUserID, []string{"abc123"}).Return(storage.ErrForbidden).Once()
+
+		shortener := service.NewShortener(mockStore)
+		handler := NewShortenHandler(shortener, "http://localhost:8080/", logger)
+
+		body := []byte(`["abc123"]`)
+		req := NewRequestWithUserID(http.MethodDelete, "/api/user/urls", body)
+		req.Header.Set("Content-Type", "application/json")
+		rr := httptest.NewRecorder()
+		handler.DeleteUserURLs(rr, req)
+
+		assert.Equal(t, http.StatusForbidden, rr.Code)
+	})
+
+	t.Run("storage error", func(t *testing.T) {
+		mockStore := storagemocks.NewMockStorage(t)
+		mockStore.EXPECT().DeleteUserURLs(TestUserID, []string{"abc123"}).Return(errors.New("db error")).Once()
+
+		shortener := service.NewShortener(mockStore)
+		handler := NewShortenHandler(shortener, "http://localhost:8080/", logger)
+
+		body := []byte(`["abc123"]`)
+		req := NewRequestWithUserID(http.MethodDelete, "/api/user/urls", body)
+		req.Header.Set("Content-Type", "application/json")
+		rr := httptest.NewRecorder()
+		handler.DeleteUserURLs(rr, req)
+
+		assert.Equal(t, http.StatusInternalServerError, rr.Code)
 	})
 }

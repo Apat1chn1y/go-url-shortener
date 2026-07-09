@@ -27,6 +27,16 @@ func NewShortener(s storage.Storage) *Shortener {
 	return &Shortener{storage: s}
 }
 
+func (s *Shortener) DeleteUserURLs(userID string, ids []string) error {
+	if userID == "" {
+		return errors.New("unauthorized")
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	return s.storage.DeleteUserURLs(userID, ids)
+}
+
 func (s *Shortener) Ping() error {
 	return s.storage.Ping()
 }

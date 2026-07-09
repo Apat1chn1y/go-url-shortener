@@ -16,11 +16,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// TestRouterIntegration – существующий тест для основных эндпоинтов (GET, POST).
 func TestRouterIntegration(t *testing.T) {
-	// Используем правильное имя функции для создания мока
 	mockShortener := mocks.NewMockURLShortener(t)
 
-	// Настраиваем ожидания
 	mockShortener.EXPECT().
 		Create("https://example.com", "http://localhost:8080/", mock.Anything).
 		Return("http://localhost:8080/abc123", nil).
@@ -36,7 +35,6 @@ func TestRouterIntegration(t *testing.T) {
 		Return("https://original.com", nil).
 		Times(1)
 
-	// Дополнительные методы – Maybe
 	mockShortener.EXPECT().Ping().Return(nil).Maybe()
 	mockShortener.EXPECT().FindByOriginal(mock.Anything).Return("", nil).Maybe()
 	mockShortener.EXPECT().GetUserURLs(mock.Anything).Return(nil, nil).Maybe()
@@ -123,5 +121,100 @@ func TestRouterIntegration(t *testing.T) {
 		require.NoError(t, err)
 		defer resp.Body.Close()
 		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	})
+}
+
+// TestRouterDeleteIntegration – интеграционный тест для DELETE /api/user/urls.
+func TestRouterDeleteIntegration(t *testing.T) {
+	mockShortener := mocks.NewMockURLShortener(t)
+
+	// Ожидаем вызов DeleteUserURLs с правильным userID (любой строкой) и списком ID.
+	mockShortener.EXPECT().
+		DeleteUserURLs(mock.Anything, []string{"abc123", "def456"}).
+		Return(nil).
+		Once()
+
+	mockShortener.EXPECT().Ping().Return(nil).Maybe()
+	mockShortener.EXPECT().FindByOriginal(mock.Anything).Return("", nil).Maybe()
+	mockShortener.EXPECT().GetUserURLs(mock.Anything).Return(nil, nil).Maybe()
+	mockShortener.EXPECT().Create(mock.Anything, mock.Anything, mock.Anything).Return("", nil).Maybe()
+	mockShortener.EXPECT().Get(mock.Anything).Return("", nil).Maybe()
+
+	handler := handlers.NewShortenHandler(mockShortener, "http://localhost:8080/", zerolog.Nop())
+	router := handlers.NewRouter(handler, zerolog.Nop(), []byte("test-key"))
+	ts := httptest.NewServer(router)
+	defer ts.Close()
+
+	t.Run("DELETE /api/user/urls success", func(t *testing.T) {
+		body := bytes.NewBufferString(`["abc123", "def456"]`)
+		req, err := http.NewRequest(http.MethodDelete, ts.URL+"/api/user/urls", body)
+		require.NoError(t, err)
+		req.Header.Set("Content-Type", "application/json")
+
+		client := &http.Client{}
+		resp, err := client.Do(req)
+		require.NoError(t, err)
+		defer resp.Body.Close()
+
+		assert.Equal(t, http.StatusAccepted, resp.StatusCode)
+	})
+
+	t.Run("DELETE /api/user/urls invalid JSON", func(t *testing.T) {
+		body := bytes.NewBufferString(`not json`)
+		req, err := http.NewRequest(http.MethodDelete, ts.URL+"/api/user/urls", body)
+		require.NoError(t, err)
+		req.Header.Set("Content-Type", "application/json")
+
+		client := &http.Client{}
+		resp, err := client.Do(req)
+		require.NoError(t, err)
+		defer resp.Body.Close()
+
+		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	})
+
+	t.Run("DELETE /api/user/urls empty list", func(t *testing.T) {
+		body := bytes.NewBufferString(`[]`)
+		req, err := http.NewRequest(http.MethodDelete, ts.URL+"/api/user/urls", body)
+		require.NoError(t, err)
+		req.Header.Set("Content-Type", "application/json")
+
+		client := &http.Client{}
+		resp, err := client.Do(req)
+		require.NoError(t, err)
+		defer resp.Body.Close()
+
+		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	})
+
+	t.Run("DELETE /api/user/urls service returns error", func(t *testing.T) {
+		// Создаём отдельный мок для этого кейса
+		mockShortenerError := mocks.NewMockURLShortener(t)
+		mockShortenerError.EXPECT().
+			DeleteUserURLs(mock.Anything, []string{"abc123"}).
+			Return(assert.AnError). // любая ошибка
+			Once()
+		mockShortenerError.EXPECT().Ping().Return(nil).Maybe()
+		mockShortenerError.EXPECT().FindByOriginal(mock.Anything).Return("", nil).Maybe()
+		mockShortenerError.EXPECT().GetUserURLs(mock.Anything).Return(nil, nil).Maybe()
+		mockShortenerError.EXPECT().Create(mock.Anything, mock.Anything, mock.Anything).Return("", nil).Maybe()
+		mockShortenerError.EXPECT().Get(mock.Anything).Return("", nil).Maybe()
+
+		handlerErr := handlers.NewShortenHandler(mockShortenerError, "http://localhost:8080/", zerolog.Nop())
+		routerErr := handlers.NewRouter(handlerErr, zerolog.Nop(), []byte("test-key"))
+		tsErr := httptest.NewServer(routerErr)
+		defer tsErr.Close()
+
+		body := bytes.NewBufferString(`["abc123"]`)
+		req, err := http.NewRequest(http.MethodDelete, tsErr.URL+"/api/user/urls", body)
+		require.NoError(t, err)
+		req.Header.Set("Content-Type", "application/json")
+
+		client := &http.Client{}
+		resp, err := client.Do(req)
+		require.NoError(t, err)
+		defer resp.Body.Close()
+
+		assert.Equal(t, http.StatusInternalServerError, resp.StatusCode)
 	})
 }

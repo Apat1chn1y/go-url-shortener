@@ -10,21 +10,25 @@ import (
 	"github.com/google/uuid"
 )
 
+// fileStorageEntry представляет одну запись в JSON-файле.
 type fileStorageEntry struct {
 	UUID        string `json:"uuid"`
 	ShortURL    string `json:"short_url"`
 	OriginalURL string `json:"original_url"`
 	UserID      string `json:"user_id"`
+	Deleted     bool   `json:"deleted"`
 }
 
+// FileStorage реализует Storage с сохранением на диск.
 type FileStorage struct {
 	mu       sync.RWMutex
-	data     map[string]urlEntry // id -> entry
+	data     map[string]urlEntry // id -> entry (использует общий тип urlEntry из types.go)
 	urlToID  map[string]string   // originalURL -> id
 	userURLs map[string][]string // userID -> []id
 	filePath string
 }
 
+// NewFileStorage создаёт новое файловое хранилище.
 func NewFileStorage(filePath string) (*FileStorage, error) {
 	fs := &FileStorage{
 		data:     make(map[string]urlEntry),
@@ -62,9 +66,10 @@ func (fs *FileStorage) load() error {
 		fs.data[entry.ShortURL] = urlEntry{
 			originalURL: entry.OriginalURL,
 			userID:      entry.UserID,
+			deleted:     entry.Deleted,
 		}
 		fs.urlToID[entry.OriginalURL] = entry.ShortURL
-		if entry.UserID != "" {
+		if entry.UserID != "" && !entry.Deleted {
 			fs.userURLs[entry.UserID] = append(fs.userURLs[entry.UserID], entry.ShortURL)
 		}
 	}
@@ -80,6 +85,7 @@ func (fs *FileStorage) save() error {
 			ShortURL:    id,
 			OriginalURL: entry.originalURL,
 			UserID:      entry.userID,
+			Deleted:     entry.deleted,
 		})
 	}
 
@@ -119,7 +125,7 @@ func (fs *FileStorage) SaveForUser(id, originalURL, userID string) error {
 	if _, exists := fs.data[id]; exists {
 		return ErrAlreadyExists
 	}
-	fs.data[id] = urlEntry{originalURL: originalURL, userID: userID}
+	fs.data[id] = urlEntry{originalURL: originalURL, userID: userID, deleted: false}
 	fs.urlToID[originalURL] = id
 	if userID != "" {
 		fs.userURLs[userID] = append(fs.userURLs[userID], id)
@@ -135,21 +141,29 @@ func (fs *FileStorage) SaveBatch(urls map[string]string) error {
 		if _, exists := fs.data[id]; exists {
 			return ErrAlreadyExists
 		}
-		fs.data[id] = urlEntry{originalURL: originalURL, userID: ""}
+		fs.data[id] = urlEntry{originalURL: originalURL, userID: "", deleted: false}
 		fs.urlToID[originalURL] = id
 	}
 	return fs.save()
 }
 
-func (fs *FileStorage) FindByOriginal(originalURL string) (string, error) {
-	fs.mu.RLock()
-	defer fs.mu.RUnlock()
-	if id, ok := fs.urlToID[originalURL]; ok {
-		return id, nil
+func (fs *FileStorage) SaveBatchForUser(urls map[string]string, userID string) error {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	for id, originalURL := range urls {
+		if _, exists := fs.data[id]; exists {
+			return ErrAlreadyExists
+		}
+		fs.data[id] = urlEntry{originalURL: originalURL, userID: userID, deleted: false}
+		fs.urlToID[originalURL] = id
+		if userID != "" {
+			fs.userURLs[userID] = append(fs.userURLs[userID], id)
+		}
 	}
-	return "", ErrNotFound
+	return fs.save()
 }
 
+// Load возвращает оригинальный URL, если запись не удалена.
 func (fs *FileStorage) Load(id string) (string, error) {
 	fs.mu.RLock()
 	defer fs.mu.RUnlock()
@@ -157,10 +171,24 @@ func (fs *FileStorage) Load(id string) (string, error) {
 	if !ok {
 		return "", ErrNotFound
 	}
+	if entry.deleted {
+		return "", ErrGone
+	}
 	return entry.originalURL, nil
 }
 
-// GetUserURLs возвращает все URL пользователя.
+func (fs *FileStorage) FindByOriginal(originalURL string) (string, error) {
+	fs.mu.RLock()
+	defer fs.mu.RUnlock()
+	if id, ok := fs.urlToID[originalURL]; ok {
+		entry := fs.data[id]
+		if !entry.deleted {
+			return id, nil
+		}
+	}
+	return "", ErrNotFound
+}
+
 func (fs *FileStorage) GetUserURLs(userID string) ([]UserURL, error) {
 	fs.mu.RLock()
 	defer fs.mu.RUnlock()
@@ -171,7 +199,7 @@ func (fs *FileStorage) GetUserURLs(userID string) ([]UserURL, error) {
 	result := make([]UserURL, 0, len(ids))
 	for _, id := range ids {
 		entry, exists := fs.data[id]
-		if !exists {
+		if !exists || entry.deleted {
 			continue
 		}
 		result = append(result, UserURL{
@@ -183,18 +211,35 @@ func (fs *FileStorage) GetUserURLs(userID string) ([]UserURL, error) {
 	return result, nil
 }
 
-// SaveBatchForUser сохраняет несколько записей с привязкой к пользователю.
-func (fs *FileStorage) SaveBatchForUser(urls map[string]string, userID string) error {
+// DeleteUserURLs помечает URL как удалённые для данного пользователя.
+func (fs *FileStorage) DeleteUserURLs(userID string, ids []string) error {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
-	for id, originalURL := range urls {
-		if _, exists := fs.data[id]; exists {
-			return ErrAlreadyExists
+
+	// Проверяем существование и принадлежность
+	for _, id := range ids {
+		entry, exists := fs.data[id]
+		if !exists {
+			return ErrNotFound
 		}
-		fs.data[id] = urlEntry{originalURL: originalURL, userID: userID}
-		fs.urlToID[originalURL] = id
+		if entry.userID != userID {
+			return ErrForbidden
+		}
+	}
+
+	// Проставляем флаг deleted и удаляем из списка пользователя
+	for _, id := range ids {
+		entry := fs.data[id]
+		entry.deleted = true
+		fs.data[id] = entry
 		if userID != "" {
-			fs.userURLs[userID] = append(fs.userURLs[userID], id)
+			list := fs.userURLs[userID]
+			for i, v := range list {
+				if v == id {
+					fs.userURLs[userID] = append(list[:i], list[i+1:]...)
+					break
+				}
+			}
 		}
 	}
 	return fs.save()
