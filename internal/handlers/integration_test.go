@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Apat1chn1y/go-url-shortener.git/internal/audit"
 	"github.com/Apat1chn1y/go-url-shortener.git/internal/handlers"
 	"github.com/Apat1chn1y/go-url-shortener.git/internal/service"
 	"github.com/Apat1chn1y/go-url-shortener.git/internal/storage"
@@ -20,7 +21,7 @@ func TestCreateAndRedirectIntegration(t *testing.T) {
 	logger := zerolog.Nop()
 	store := storage.NewInMemoryStorage()
 	shortener := service.NewShortener(store)
-	handler := handlers.NewShortenHandler(shortener, "http://localhost:8080/", logger)
+	handler := handlers.NewShortenHandler(shortener, "http://localhost:8080/", logger, audit.NewManager())
 
 	req := handlers.NewRequestWithUserID(http.MethodPost, "/", []byte("https://example.com"))
 	req.Header.Set("Content-Type", "text/plain")
@@ -52,7 +53,7 @@ func TestCreateAndRedirectFileIntegration(t *testing.T) {
 	store, err := storage.NewFileStorage(storagePath)
 	require.NoError(t, err)
 	shortener := service.NewShortener(store)
-	handler := handlers.NewShortenHandler(shortener, "http://localhost:8080/", logger)
+	handler := handlers.NewShortenHandler(shortener, "http://localhost:8080/", logger, audit.NewManager())
 
 	req := handlers.NewRequestWithUserID(http.MethodPost, "/", []byte("https://example.com"))
 	req.Header.Set("Content-Type", "text/plain")
@@ -69,7 +70,7 @@ func TestCreateAndRedirectFileIntegration(t *testing.T) {
 	store2, err := storage.NewFileStorage(storagePath)
 	require.NoError(t, err)
 	shortener2 := service.NewShortener(store2)
-	handler2 := handlers.NewShortenHandler(shortener2, "http://localhost:8080/", logger)
+	handler2 := handlers.NewShortenHandler(shortener2, "http://localhost:8080/", logger, audit.NewManager())
 
 	reqRedirect := httptest.NewRequest(http.MethodGet, "/"+id, nil)
 	rrRedirect := httptest.NewRecorder()

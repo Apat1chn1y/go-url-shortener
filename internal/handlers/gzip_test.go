@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/Apat1chn1y/go-url-shortener.git/internal/audit"
 	storagemocks "github.com/Apat1chn1y/go-url-shortener.git/internal/mocks/storage"
 	"github.com/Apat1chn1y/go-url-shortener.git/internal/service"
 	"github.com/Apat1chn1y/go-url-shortener.git/internal/storage"
@@ -20,6 +21,7 @@ import (
 
 func TestGzipMiddleware(t *testing.T) {
 	logger := zerolog.Nop()
+	auditManager := audit.NewManager()
 
 	t.Run("response compressed for /api/shorten with Accept-Encoding: gzip", func(t *testing.T) {
 		mockStore := storagemocks.NewMockStorage(t)
@@ -27,7 +29,7 @@ func TestGzipMiddleware(t *testing.T) {
 		mockStore.EXPECT().SaveForUser(mock.Anything, "https://ya.ru", mock.Anything).Return(nil).Once()
 
 		shortener := service.NewShortener(mockStore)
-		handler := NewShortenHandler(shortener, "http://localhost:8080/", logger)
+		handler := NewShortenHandler(shortener, "http://localhost:8080/", logger, auditManager)
 		router := NewRouter(handler, logger, []byte("test-key"))
 
 		body := `{"url":"https://ya.ru"}`
@@ -59,7 +61,7 @@ func TestGzipMiddleware(t *testing.T) {
 		mockStore.EXPECT().SaveForUser(mock.Anything, "https://ya.ru", mock.Anything).Return(nil).Once()
 
 		shortener := service.NewShortener(mockStore)
-		handler := NewShortenHandler(shortener, "http://localhost:8080/", logger)
+		handler := NewShortenHandler(shortener, "http://localhost:8080/", logger, auditManager)
 		router := NewRouter(handler, logger, []byte("test-key"))
 
 		req := NewRequestWithUserID(http.MethodPost, "/", []byte("https://ya.ru"))
@@ -79,7 +81,7 @@ func TestGzipMiddleware(t *testing.T) {
 		mockStore.EXPECT().SaveForUser(mock.Anything, "https://ya.ru", mock.Anything).Return(nil).Once()
 
 		shortener := service.NewShortener(mockStore)
-		handler := NewShortenHandler(shortener, "http://localhost:8080/", logger)
+		handler := NewShortenHandler(shortener, "http://localhost:8080/", logger, auditManager)
 		router := NewRouter(handler, logger, []byte("test-key"))
 
 		var buf bytes.Buffer
@@ -103,7 +105,7 @@ func TestGzipMiddleware(t *testing.T) {
 	t.Run("invalid gzip request returns 400", func(t *testing.T) {
 		mockStore := storagemocks.NewMockStorage(t)
 		shortener := service.NewShortener(mockStore)
-		handler := NewShortenHandler(shortener, "http://localhost:8080/", logger)
+		handler := NewShortenHandler(shortener, "http://localhost:8080/", logger, auditManager)
 		router := NewRouter(handler, logger, []byte("test-key"))
 
 		req := NewRequestWithUserID(http.MethodPost, "/api/shorten", []byte("not gzip"))

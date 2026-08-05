@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 
+	"github.com/Apat1chn1y/go-url-shortener.git/internal/audit"
 	"github.com/Apat1chn1y/go-url-shortener.git/internal/config"
 	"github.com/Apat1chn1y/go-url-shortener.git/internal/handlers"
 	"github.com/Apat1chn1y/go-url-shortener.git/internal/server"
@@ -42,10 +43,27 @@ func main() {
 		logger.Info().Msg("Using in-memory storage")
 	}
 
+	// Инициализация аудита
+	auditManager := audit.NewManager()
+	if cfg.AuditFilePath != "" {
+		fileWriter, err := audit.NewFileWriter(cfg.AuditFilePath)
+		if err != nil {
+			logger.Error().Err(err).Str("path", cfg.AuditFilePath).Msg("Failed to create audit file writer")
+		} else {
+			auditManager.AddWriter(fileWriter)
+			logger.Info().Str("path", cfg.AuditFilePath).Msg("Audit file writer enabled")
+		}
+	}
+	if cfg.AuditURL != "" {
+		httpWriter := audit.NewHTTPWriter(cfg.AuditURL)
+		auditManager.AddWriter(httpWriter)
+		logger.Info().Str("url", cfg.AuditURL).Msg("Audit HTTP writer enabled")
+	}
+
 	// Инициализация сервиса бизнес-логики.
 	shortener := service.NewShortener(store)
 	// Инициализация HTTP-обработчика.
-	handler := handlers.NewShortenHandler(shortener, cfg.BaseURL, logger)
+	handler := handlers.NewShortenHandler(shortener, cfg.BaseURL, logger, auditManager)
 
 	// Создание роутера
 	router := handlers.NewRouter(handler, logger, cfg.AuthKey)

@@ -95,7 +95,7 @@ func TestShortenHandler_Create(t *testing.T) {
 				tt.setupMock(mockStore)
 			}
 			shortener := service.NewShortener(mockStore)
-			handler := NewShortenHandler(shortener, "http://localhost:8080/", logger)
+			handler := NewTestHandler(shortener, "http://localhost:8080/", logger)
 
 			req := NewRequestWithUserID(http.MethodPost, "/", []byte(tt.body))
 			req.Header.Set("Content-Type", tt.contentType)
@@ -117,7 +117,7 @@ func TestShortenHandler_Create(t *testing.T) {
 	}
 }
 
-// TestShortenHandler_Redirect – без изменений, кроме логирования (уже передаётся логгер)
+// TestShortenHandler_Redirect
 func TestShortenHandler_Redirect(t *testing.T) {
 	logger := zerolog.Nop()
 
@@ -162,7 +162,7 @@ func TestShortenHandler_Redirect(t *testing.T) {
 				tt.setupMock(mockStore)
 			}
 			shortener := service.NewShortener(mockStore)
-			handler := NewShortenHandler(shortener, "http://localhost:8080/", logger)
+			handler := NewTestHandler(shortener, "http://localhost:8080/", logger)
 
 			req := NewRequestWithUserID(http.MethodGet, tt.path, nil)
 			rr := httptest.NewRecorder()
@@ -179,7 +179,7 @@ func TestShortenHandler_Redirect(t *testing.T) {
 	}
 }
 
-// TestShortenHandler_HandleShortenJSON – аналогично
+// TestShortenHandler_HandleShortenJSON
 func TestShortenHandler_HandleShortenJSON(t *testing.T) {
 	logger := zerolog.Nop()
 
@@ -273,7 +273,7 @@ func TestShortenHandler_HandleShortenJSON(t *testing.T) {
 				tt.setupMock(mockStore)
 			}
 			shortener := service.NewShortener(mockStore)
-			handler := NewShortenHandler(shortener, "http://localhost:8080/", logger)
+			handler := NewTestHandler(shortener, "http://localhost:8080/", logger)
 
 			req := NewRequestWithUserID(http.MethodPost, "/api/shorten", []byte(tt.body))
 			req.Header.Set("Content-Type", tt.contentType)
@@ -299,14 +299,14 @@ func TestShortenHandler_HandleShortenJSON(t *testing.T) {
 	}
 }
 
-// TestShortenHandler_Ping – без изменений (уже передаётся логгер)
+// TestShortenHandler_Ping
 func TestShortenHandler_Ping(t *testing.T) {
 	logger := zerolog.Nop()
 	mockStore := storagemocks.NewMockStorage(t)
 	mockStore.EXPECT().Ping().Return(nil).Once()
 
 	shortener := service.NewShortener(mockStore)
-	handler := NewShortenHandler(shortener, "http://localhost:8080/", logger)
+	handler := NewTestHandler(shortener, "http://localhost:8080/", logger)
 
 	req := httptest.NewRequest(http.MethodGet, "/ping", nil)
 	rr := httptest.NewRecorder()
@@ -321,7 +321,7 @@ func TestShortenHandler_Ping_Error(t *testing.T) {
 	mockStore.EXPECT().Ping().Return(errors.New("db down")).Once()
 
 	shortener := service.NewShortener(mockStore)
-	handler := NewShortenHandler(shortener, "http://localhost:8080/", logger)
+	handler := NewTestHandler(shortener, "http://localhost:8080/", logger)
 
 	req := httptest.NewRequest(http.MethodGet, "/ping", nil)
 	rr := httptest.NewRecorder()
@@ -331,7 +331,7 @@ func TestShortenHandler_Ping_Error(t *testing.T) {
 	assert.Contains(t, rr.Body.String(), "Internal Server Error")
 }
 
-// TestShortenHandler_Create_Duplicate – проверка 409
+// TestShortenHandler_Create_Duplicate
 func TestShortenHandler_Create_Duplicate(t *testing.T) {
 	logger := zerolog.Nop()
 	mockStore := storagemocks.NewMockStorage(t)
@@ -339,7 +339,7 @@ func TestShortenHandler_Create_Duplicate(t *testing.T) {
 	// Save не вызывается
 
 	shortener := service.NewShortener(mockStore)
-	handler := NewShortenHandler(shortener, "http://localhost:8080/", logger)
+	handler := NewTestHandler(shortener, "http://localhost:8080/", logger)
 
 	req := NewRequestWithUserID(http.MethodPost, "/", []byte("https://ya.ru"))
 	req.Header.Set("Content-Type", "text/plain")
@@ -357,7 +357,7 @@ func TestShortenHandler_HandleShortenJSON_Duplicate(t *testing.T) {
 	mockStore.EXPECT().FindByOriginal("https://ya.ru").Return("abc123", nil).Once()
 
 	shortener := service.NewShortener(mockStore)
-	handler := NewShortenHandler(shortener, "http://localhost:8080/", logger)
+	handler := NewTestHandler(shortener, "http://localhost:8080/", logger)
 
 	req := NewRequestWithUserID(http.MethodPost, "/api/shorten", []byte(`{"url":"https://ya.ru"}`))
 	req.Header.Set("Content-Type", "application/json")
@@ -373,7 +373,7 @@ func TestShortenHandler_HandleShortenJSON_Duplicate(t *testing.T) {
 	assert.Equal(t, "http://localhost:8080/abc123", resp.Result)
 }
 
-// TestShortenHandler_HandleBatchShorten – обновлён для использования SaveBatchForUser
+// TestShortenHandler_HandleBatchShorten
 func TestShortenHandler_HandleBatchShorten(t *testing.T) {
 	logger := zerolog.Nop()
 
@@ -404,7 +404,6 @@ func TestShortenHandler_HandleBatchShorten(t *testing.T) {
 				err := json.Unmarshal([]byte(body), &resp)
 				require.NoError(t, err)
 				assert.Len(t, resp, 2)
-				// Проверяем порядок (первый должен быть с correlation_id "1")
 				assert.Equal(t, "1", resp[0].CorrelationID)
 				assert.Contains(t, resp[0].ShortURL, "http://localhost:8080/")
 			},
@@ -453,7 +452,7 @@ func TestShortenHandler_HandleBatchShorten(t *testing.T) {
 				tt.setupMock(mockStore)
 			}
 			shortener := service.NewShortener(mockStore)
-			handler := NewShortenHandler(shortener, "http://localhost:8080/", logger)
+			handler := NewTestHandler(shortener, "http://localhost:8080/", logger)
 
 			req := NewRequestWithUserID(http.MethodPost, "/api/shorten/batch", []byte(tt.body))
 			req.Header.Set("Content-Type", tt.contentType)
@@ -472,7 +471,7 @@ func TestShortenHandler_HandleBatchShorten(t *testing.T) {
 	}
 }
 
-// TestShortenHandler_GetUserURLs – новый тест для эндпоинта /api/user/urls
+// TestShortenHandler_GetUserURLs
 func TestShortenHandler_GetUserURLs(t *testing.T) {
 	logger := zerolog.Nop()
 
@@ -485,7 +484,7 @@ func TestShortenHandler_GetUserURLs(t *testing.T) {
 		mockStore.EXPECT().GetUserURLs(TestUserID).Return(expectedUserURLs, nil).Once()
 
 		shortener := service.NewShortener(mockStore)
-		handler := NewShortenHandler(shortener, "http://localhost:8080/", logger)
+		handler := NewTestHandler(shortener, "http://localhost:8080/", logger)
 
 		req := NewRequestWithUserID(http.MethodGet, "/api/user/urls", nil)
 		rr := httptest.NewRecorder()
@@ -512,7 +511,7 @@ func TestShortenHandler_GetUserURLs(t *testing.T) {
 		mockStore.EXPECT().GetUserURLs(TestUserID).Return([]storage.UserURL{}, nil).Once()
 
 		shortener := service.NewShortener(mockStore)
-		handler := NewShortenHandler(shortener, "http://localhost:8080/", logger)
+		handler := NewTestHandler(shortener, "http://localhost:8080/", logger)
 
 		req := NewRequestWithUserID(http.MethodGet, "/api/user/urls", nil)
 		rr := httptest.NewRecorder()
@@ -523,11 +522,10 @@ func TestShortenHandler_GetUserURLs(t *testing.T) {
 
 	t.Run("no userID -> 401", func(t *testing.T) {
 		mockStore := storagemocks.NewMockStorage(t)
-		// Не вызываем GetUserURLs
 		shortener := service.NewShortener(mockStore)
-		handler := NewShortenHandler(shortener, "http://localhost:8080/", logger)
+		handler := NewTestHandler(shortener, "http://localhost:8080/", logger)
 
-		req := httptest.NewRequest(http.MethodGet, "/api/user/urls", nil) // без контекста
+		req := httptest.NewRequest(http.MethodGet, "/api/user/urls", nil)
 		rr := httptest.NewRecorder()
 		handler.GetUserURLs(rr, req)
 
@@ -540,7 +538,7 @@ func TestShortenHandler_GetUserURLs(t *testing.T) {
 		mockStore.EXPECT().GetUserURLs(TestUserID).Return(nil, errors.New("db error")).Once()
 
 		shortener := service.NewShortener(mockStore)
-		handler := NewShortenHandler(shortener, "http://localhost:8080/", logger)
+		handler := NewTestHandler(shortener, "http://localhost:8080/", logger)
 
 		req := NewRequestWithUserID(http.MethodGet, "/api/user/urls", nil)
 		rr := httptest.NewRecorder()
@@ -551,14 +549,14 @@ func TestShortenHandler_GetUserURLs(t *testing.T) {
 	})
 }
 
-// TestShortenHandler_Redirect_Gone проверяет, что удалённый URL возвращает 410.
+// TestShortenHandler_Redirect_Gone
 func TestShortenHandler_Redirect_Gone(t *testing.T) {
 	logger := zerolog.Nop()
 	mockStore := storagemocks.NewMockStorage(t)
 	mockStore.EXPECT().Load("deleted123").Return("", storage.ErrGone).Once()
 
 	shortener := service.NewShortener(mockStore)
-	handler := NewShortenHandler(shortener, "http://localhost:8080/", logger)
+	handler := NewTestHandler(shortener, "http://localhost:8080/", logger)
 
 	req := NewRequestWithUserID(http.MethodGet, "/deleted123", nil)
 	rr := httptest.NewRecorder()
@@ -568,7 +566,7 @@ func TestShortenHandler_Redirect_Gone(t *testing.T) {
 	assert.Contains(t, rr.Body.String(), "Gone")
 }
 
-// TestShortenHandler_DeleteUserURLs проверяет эндпоинт DELETE /api/user/urls.
+// TestShortenHandler_DeleteUserURLs
 func TestShortenHandler_DeleteUserURLs(t *testing.T) {
 	logger := zerolog.Nop()
 
@@ -580,7 +578,7 @@ func TestShortenHandler_DeleteUserURLs(t *testing.T) {
 			Maybe()
 
 		shortener := service.NewShortener(mockStore)
-		handler := NewShortenHandler(shortener, "http://localhost:8080/", logger)
+		handler := NewTestHandler(shortener, "http://localhost:8080/", logger)
 
 		body := []byte(`["abc123", "def456"]`)
 		req := NewRequestWithUserID(http.MethodDelete, "/api/user/urls", body)
@@ -594,7 +592,7 @@ func TestShortenHandler_DeleteUserURLs(t *testing.T) {
 	t.Run("unauthorized - no userID", func(t *testing.T) {
 		mockStore := storagemocks.NewMockStorage(t)
 		shortener := service.NewShortener(mockStore)
-		handler := NewShortenHandler(shortener, "http://localhost:8080/", logger)
+		handler := NewTestHandler(shortener, "http://localhost:8080/", logger)
 
 		body := []byte(`["abc123"]`)
 		req := httptest.NewRequest(http.MethodDelete, "/api/user/urls", bytes.NewBuffer(body))
@@ -608,7 +606,7 @@ func TestShortenHandler_DeleteUserURLs(t *testing.T) {
 	t.Run("invalid JSON", func(t *testing.T) {
 		mockStore := storagemocks.NewMockStorage(t)
 		shortener := service.NewShortener(mockStore)
-		handler := NewShortenHandler(shortener, "http://localhost:8080/", logger)
+		handler := NewTestHandler(shortener, "http://localhost:8080/", logger)
 
 		body := []byte(`not json`)
 		req := NewRequestWithUserID(http.MethodDelete, "/api/user/urls", body)
@@ -623,7 +621,7 @@ func TestShortenHandler_DeleteUserURLs(t *testing.T) {
 	t.Run("empty list", func(t *testing.T) {
 		mockStore := storagemocks.NewMockStorage(t)
 		shortener := service.NewShortener(mockStore)
-		handler := NewShortenHandler(shortener, "http://localhost:8080/", logger)
+		handler := NewTestHandler(shortener, "http://localhost:8080/", logger)
 
 		body := []byte(`[]`)
 		req := NewRequestWithUserID(http.MethodDelete, "/api/user/urls", body)
