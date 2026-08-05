@@ -13,6 +13,7 @@ import (
 	"github.com/joho/godotenv"
 )
 
+// Config содержит все параметры конфигурации приложения.
 type Config struct {
 	ServerAddress   string
 	BaseURL         string

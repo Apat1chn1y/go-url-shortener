@@ -11,9 +11,10 @@ import (
 	"github.com/rs/zerolog"
 )
 
+// TestUserID — фиктивный идентификатор пользователя, используемый в тестах.
 const TestUserID = "test-user-123"
 
-// newRequestWithUserID создаёт HTTP-запрос с контекстом, содержащим testUserID.
+// NewRequestWithUserID создаёт HTTP-запрос с контекстом, содержащим TestUserID.
 // Использует константу userIDKey из middleware_auth.go.
 func NewRequestWithUserID(method, path string, body []byte) *http.Request {
 	req := httptest.NewRequest(method, path, bytes.NewBuffer(body))

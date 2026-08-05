@@ -12,10 +12,10 @@ import (
 	"strings"
 )
 
-const (
-	CookieName   = "user_id"
-	cookieMaxAge = 86400 * 30 // 30 дней
-)
+// CookieName — имя HTTP-куки, в которой хранится идентификатор пользователя.
+const CookieName = "user_id"
+
+const cookieMaxAge = 86400 * 30 // 30 дней
 
 // GenerateUserID генерирует случайный идентификатор пользователя (16 байт в hex).
 func GenerateUserID() (string, error) {

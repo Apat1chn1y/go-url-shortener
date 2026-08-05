@@ -1,3 +1,4 @@
+// Package main — точка входа в сервис сокращения URL.
 package main
 
 import (
