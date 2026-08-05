@@ -8,26 +8,53 @@ import (
 	"strings"
 
 	"github.com/Apat1chn1y/go-url-shortener.git/internal/service"
+	"github.com/Apat1chn1y/go-url-shortener.git/internal/storage"
 	"github.com/rs/zerolog"
 )
 
-// URLShortener определяет контракт бизнес-логики, необходимый обработчикам.
 type URLShortener interface {
-	Create(originalURL, baseURL string) (string, error)
+	Create(originalURL, baseURL, userID string) (string, error)
 	Get(id string) (string, error)
 	Ping() error
-	CreateBatch(items []service.BatchItem, baseURL string) ([]service.BatchResult, error)
+	CreateBatch(items []service.BatchItem, baseURL, userID string) ([]service.BatchResult, error)
 	FindByOriginal(originalURL string) (string, error)
+	GetUserURLs(userID string) ([]storage.UserURL, error)
+	DeleteUserURLs(userID string, ids []string) error
 }
 
-// ShortenHandler привязывает HTTP-запросы к сервису сокращения URL.
 type ShortenHandler struct {
 	shortener URLShortener
 	baseURL   string
 	logger    zerolog.Logger
 }
 
-// NewShortenHandler создаёт новый обработчик с заданным сервисом и базовым URL.
+// DeleteUserURLs обрабатывает DELETE /api/user/urls.
+func (h *ShortenHandler) DeleteUserURLs(w http.ResponseWriter, r *http.Request) {
+	userID := GetUserIDFromContext(r)
+	if userID == "" {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	var ids []string
+	if err := json.NewDecoder(r.Body).Decode(&ids); err != nil {
+		http.Error(w, "Bad Request: invalid JSON", http.StatusBadRequest)
+		return
+	}
+	if len(ids) == 0 {
+		http.Error(w, "Bad Request: empty list", http.StatusBadRequest)
+		return
+	}
+
+	// Асинхронное удаление
+	go func() {
+		if err := h.shortener.DeleteUserURLs(userID, ids); err != nil {
+			h.logger.Error().Err(err).Str("user_id", userID).Interface("ids", ids).Msg("failed to delete URLs")
+		}
+	}()
+
+	w.WriteHeader(http.StatusAccepted)
+}
+
 func NewShortenHandler(shortener URLShortener, baseURL string, logger zerolog.Logger) *ShortenHandler {
 	return &ShortenHandler{
 		shortener: shortener,
@@ -36,7 +63,6 @@ func NewShortenHandler(shortener URLShortener, baseURL string, logger zerolog.Lo
 	}
 }
 
-// Create обрабатывает POST / – создаёт короткий URL из plain text.
 func (h *ShortenHandler) Create(w http.ResponseWriter, r *http.Request) {
 	if r.Header.Get("Content-Type") != "text/plain" {
 		http.Error(w, http.StatusText(http.StatusBadRequest)+": Content-Type must be text/plain", http.StatusBadRequest)
@@ -48,18 +74,16 @@ func (h *ShortenHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	originalURL := string(body)
+	userID := GetUserIDFromContext(r)
 
-	shortURL, err := h.shortener.Create(originalURL, h.baseURL)
+	shortURL, err := h.shortener.Create(originalURL, h.baseURL, userID)
 	if err != nil {
 		if errors.Is(err, service.ErrEmptyURL) {
 			http.Error(w, http.StatusText(http.StatusBadRequest)+": "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		if errors.Is(err, service.ErrMaxAttemptsExceeded) {
-			h.logger.Error().
-				Err(err).
-				Str("url", originalURL).
-				Msg("failed to generate unique ID")
+			h.logger.Error().Err(err).Str("url", originalURL).Msg("failed to generate unique ID")
 			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 			return
 		}
@@ -78,7 +102,6 @@ func (h *ShortenHandler) Create(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(shortURL))
 }
 
-// Redirect обрабатывает GET /{id} – редирект на оригинальный URL.
 func (h *ShortenHandler) Redirect(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimPrefix(r.URL.Path, "/")
 	if id == "" {
@@ -87,6 +110,10 @@ func (h *ShortenHandler) Redirect(w http.ResponseWriter, r *http.Request) {
 	}
 	originalURL, err := h.shortener.Get(id)
 	if err != nil {
+		if errors.Is(err, storage.ErrGone) {
+			http.Error(w, http.StatusText(http.StatusGone), http.StatusGone)
+			return
+		}
 		http.Error(w, http.StatusText(http.StatusBadRequest)+": URL not found", http.StatusBadRequest)
 		return
 	}
@@ -94,7 +121,6 @@ func (h *ShortenHandler) Redirect(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusTemporaryRedirect)
 }
 
-// HandleShortenJSON обрабатывает POST /api/shorten – создаёт короткий URL из JSON.
 func (h *ShortenHandler) HandleShortenJSON(w http.ResponseWriter, r *http.Request) {
 	ct := r.Header.Get("Content-Type")
 	if !strings.HasPrefix(ct, "application/json") {
@@ -111,18 +137,18 @@ func (h *ShortenHandler) HandleShortenJSON(w http.ResponseWriter, r *http.Reques
 		http.Error(w, http.StatusText(http.StatusBadRequest)+": url field is empty", http.StatusBadRequest)
 		return
 	}
+	userID := GetUserIDFromContext(r)
 
-	shortURL, err := h.shortener.Create(req.URL, h.baseURL)
+	shortURL, err := h.shortener.Create(req.URL, h.baseURL, userID)
 	if err != nil {
 		if errors.Is(err, service.ErrEmptyURL) {
 			http.Error(w, http.StatusText(http.StatusBadRequest)+": "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		if errors.Is(err, service.ErrMaxAttemptsExceeded) {
-			h.logger.Error().
-				Err(err).
-				Str("url", req.URL).
-				Msg("failed to generate unique ID")
+			h.logger.Error().Err(err).Str("url", req.URL).Msg("failed to generate unique ID")
+			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+			return
 		}
 		if errors.Is(err, service.ErrURLAlreadyExists) {
 			resp := shortenResponse{Result: shortURL}
@@ -141,7 +167,6 @@ func (h *ShortenHandler) HandleShortenJSON(w http.ResponseWriter, r *http.Reques
 	json.NewEncoder(w).Encode(resp)
 }
 
-// Ping обрабатывает GET /ping – проверяет соединение с хранилищем.
 func (h *ShortenHandler) Ping(w http.ResponseWriter, r *http.Request) {
 	if err := h.shortener.Ping(); err != nil {
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
@@ -150,7 +175,6 @@ func (h *ShortenHandler) Ping(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-// HandleBatchShorten обрабатывает POST /api/shorten/batch.
 func (h *ShortenHandler) HandleBatchShorten(w http.ResponseWriter, r *http.Request) {
 	ct := r.Header.Get("Content-Type")
 	if !strings.HasPrefix(ct, "application/json") {
@@ -178,8 +202,9 @@ func (h *ShortenHandler) HandleBatchShorten(w http.ResponseWriter, r *http.Reque
 			OriginalURL:   v.OriginalURL,
 		}
 	}
+	userID := GetUserIDFromContext(r)
 
-	results, err := h.shortener.CreateBatch(items, h.baseURL)
+	results, err := h.shortener.CreateBatch(items, h.baseURL, userID)
 	if err != nil {
 		if errors.Is(err, service.ErrEmptyURL) ||
 			errors.Is(err, service.ErrEmptyOriginalURL) {
@@ -187,9 +212,9 @@ func (h *ShortenHandler) HandleBatchShorten(w http.ResponseWriter, r *http.Reque
 			return
 		}
 		if errors.Is(err, service.ErrMaxAttemptsExceeded) {
-			h.logger.Error().
-				Err(err).
-				Msg("failed to generate unique ID for batch")
+			h.logger.Error().Err(err).Msg("failed to generate unique ID for batch")
+			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+			return
 		}
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
@@ -212,7 +237,40 @@ func (h *ShortenHandler) HandleBatchShorten(w http.ResponseWriter, r *http.Reque
 	}
 }
 
-// Структуры для JSON-запросов/ответов.
+// GetUserURLs обрабатывает GET /api/user/urls.
+func (h *ShortenHandler) GetUserURLs(w http.ResponseWriter, r *http.Request) {
+	userID := GetUserIDFromContext(r)
+	if userID == "" {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	userURLs, err := h.shortener.GetUserURLs(userID)
+	if err != nil {
+		h.logger.Error().Err(err).Msg("failed to get user URLs")
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		return
+	}
+	if len(userURLs) == 0 {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	// Формируем ответ с полными короткими URL
+	type responseItem struct {
+		ShortURL    string `json:"short_url"`
+		OriginalURL string `json:"original_url"`
+	}
+	response := make([]responseItem, len(userURLs))
+	for i, u := range userURLs {
+		response[i] = responseItem{
+			ShortURL:    h.baseURL + u.ID,
+			OriginalURL: u.OriginalURL,
+		}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(response)
+}
+
 type shortenRequest struct {
 	URL string `json:"url"`
 }

@@ -25,6 +25,97 @@ type PostgresStorage struct {
 	pool *pgxpool.Pool
 }
 
+// DeleteUserURLs помечает URL как удалённые для данного пользователя.
+func (s *PostgresStorage) DeleteUserURLs(userID string, ids []string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	_, err := s.pool.Exec(context.TODO(),
+		"UPDATE short_urls SET is_deleted = TRUE WHERE id = ANY($1) AND user_id = $2",
+		ids, userID)
+	if err != nil {
+		return fmt.Errorf("update: %w", err)
+	}
+	return nil
+}
+
+// SaveForUser сохраняет пару с привязкой к пользователю.
+func (s *PostgresStorage) SaveForUser(id, originalURL, userID string) error {
+	_, err := s.pool.Exec(context.TODO(),
+		"INSERT INTO short_urls (id, original_url, user_id) VALUES ($1, $2, $3)",
+		id, originalURL, userID)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			switch pgErr.ConstraintName {
+			case "short_urls_pkey":
+				return ErrAlreadyExists
+			case "idx_short_urls_original_url":
+				return ErrOriginalURLDuplicate
+			default:
+				return fmt.Errorf("insert: %w", err)
+			}
+		}
+		return fmt.Errorf("insert: %w", err)
+	}
+	return nil
+}
+
+// SaveBatchForUser сохраняет множество записей с привязкой к пользователю.
+// Использует pgx.Batch для отправки всех запросов одним пакетом.
+func (s *PostgresStorage) SaveBatchForUser(urls map[string]string, userID string) error {
+	if len(urls) == 0 {
+		return nil
+	}
+
+	batch := &pgx.Batch{}
+	for id, originalURL := range urls {
+		batch.Queue(`
+			INSERT INTO short_urls (id, original_url, user_id)
+			VALUES ($1, $2, $3)
+			ON CONFLICT (id) DO NOTHING
+		`, id, originalURL, userID)
+	}
+
+	ctx := context.TODO()
+	br := s.pool.SendBatch(ctx, batch)
+	defer br.Close()
+
+	for range urls {
+		_, err := br.Exec()
+		if err != nil {
+			return fmt.Errorf("batch exec: %w", err)
+		}
+	}
+	return nil
+}
+
+// GetUserURLs возвращает все URL пользователя.
+func (s *PostgresStorage) GetUserURLs(userID string) ([]UserURL, error) {
+	rows, err := s.pool.Query(context.TODO(),
+		"SELECT id, original_url FROM short_urls WHERE user_id = $1 AND is_deleted = FALSE", userID)
+	if err != nil {
+		return nil, fmt.Errorf("query: %w", err)
+	}
+	defer rows.Close()
+	var result []UserURL
+	for rows.Next() {
+		var id, originalURL string
+		if err := rows.Scan(&id, &originalURL); err != nil {
+			return nil, fmt.Errorf("scan: %w", err)
+		}
+		result = append(result, UserURL{
+			ID:          id,
+			ShortURL:    "", // заполняется в хендлере
+			OriginalURL: originalURL,
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("rows: %w", err)
+	}
+	return result, nil
+}
+
 // NewPostgresStorage создаёт новое PostgreSQL-хранилище, применяет миграции и возвращает пул.
 func NewPostgresStorage(dsn string) (*PostgresStorage, error) {
 	pool, err := pgxpool.New(context.TODO(), dsn)
@@ -122,13 +213,17 @@ func (s *PostgresStorage) SaveBatch(urls map[string]string) error {
 // Load возвращает оригинальный URL по id. Возвращает ErrNotFound, если запись отсутствует.
 func (s *PostgresStorage) Load(id string) (string, error) {
 	var originalURL string
+	var deleted bool
 	err := s.pool.QueryRow(context.TODO(),
-		"SELECT original_url FROM short_urls WHERE id = $1", id).Scan(&originalURL)
+		"SELECT original_url, is_deleted FROM short_urls WHERE id = $1", id).Scan(&originalURL, &deleted)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return "", ErrNotFound
 		}
 		return "", fmt.Errorf("select: %w", err)
+	}
+	if deleted {
+		return "", ErrGone
 	}
 	return originalURL, nil
 }
@@ -137,7 +232,7 @@ func (s *PostgresStorage) Load(id string) (string, error) {
 func (s *PostgresStorage) FindByOriginal(originalURL string) (string, error) {
 	var id string
 	err := s.pool.QueryRow(context.TODO(),
-		"SELECT id FROM short_urls WHERE original_url = $1", originalURL).Scan(&id)
+		"SELECT id FROM short_urls WHERE original_url = $1 AND is_deleted = FALSE", originalURL).Scan(&id)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return "", ErrNotFound

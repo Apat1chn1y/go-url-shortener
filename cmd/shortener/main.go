@@ -48,7 +48,7 @@ func main() {
 	handler := handlers.NewShortenHandler(shortener, cfg.BaseURL, logger)
 
 	// Создание роутера
-	router := handlers.NewRouter(handler, logger)
+	router := handlers.NewRouter(handler, logger, cfg.AuthKey)
 	// Создание и запуск HTTP-сервера.
 	srv := server.New(cfg.ServerAddress, router)
 

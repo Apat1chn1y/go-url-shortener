@@ -12,22 +12,21 @@ import (
 	mocks "github.com/Apat1chn1y/go-url-shortener.git/internal/mocks/handlers"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
+// TestRouterIntegration – существующий тест для основных эндпоинтов (GET, POST).
 func TestRouterIntegration(t *testing.T) {
-	// Создаём мок URLShortener
-	mockShortener := mocks.NewURLShortener(t)
+	mockShortener := mocks.NewMockURLShortener(t)
 
-	// Настраиваем точные ожидания: в этом тесте будут вызваны только Create и Get.
-	// Методы FindByOriginal, Ping, CreateBatch не вызываются, поэтому их не регистрируем.
 	mockShortener.EXPECT().
-		Create("https://example.com", "http://localhost:8080/").
+		Create("https://example.com", "http://localhost:8080/", mock.Anything).
 		Return("http://localhost:8080/abc123", nil).
 		Times(1)
 
 	mockShortener.EXPECT().
-		Create("https://practicum.yandex.ru", "http://localhost:8080/").
+		Create("https://practicum.yandex.ru", "http://localhost:8080/", mock.Anything).
 		Return("http://localhost:8080/def456", nil).
 		Times(1)
 
@@ -36,9 +35,12 @@ func TestRouterIntegration(t *testing.T) {
 		Return("https://original.com", nil).
 		Times(1)
 
+	mockShortener.EXPECT().Ping().Return(nil).Maybe()
+	mockShortener.EXPECT().FindByOriginal(mock.Anything).Return("", nil).Maybe()
+	mockShortener.EXPECT().GetUserURLs(mock.Anything).Return(nil, nil).Maybe()
+
 	handler := handlers.NewShortenHandler(mockShortener, "http://localhost:8080/", zerolog.Nop())
-	logger := zerolog.Nop()
-	router := handlers.NewRouter(handler, logger)
+	router := handlers.NewRouter(handler, zerolog.Nop(), []byte("test-key"))
 	ts := httptest.NewServer(router)
 	defer ts.Close()
 
@@ -114,6 +116,54 @@ func TestRouterIntegration(t *testing.T) {
 	t.Run("POST /unknown returns 400", func(t *testing.T) {
 		req, err := http.NewRequest(http.MethodPost, ts.URL+"/unknown", nil)
 		require.NoError(t, err)
+		client := &http.Client{}
+		resp, err := client.Do(req)
+		require.NoError(t, err)
+		defer resp.Body.Close()
+		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	})
+}
+
+// TestRouterDeleteIntegration – интеграционный тест для DELETE /api/user/urls.
+func TestRouterDeleteIntegration(t *testing.T) {
+	mockShortener := mocks.NewMockURLShortener(t)
+
+	mockShortener.EXPECT().DeleteUserURLs(mock.Anything, []string{"abc123", "def456"}).Return(nil).Maybe()
+
+	handler := handlers.NewShortenHandler(mockShortener, "http://localhost:8080/", zerolog.Nop())
+	router := handlers.NewRouter(handler, zerolog.Nop(), []byte("test-key"))
+	ts := httptest.NewServer(router)
+	defer ts.Close()
+
+	t.Run("DELETE /api/user/urls success", func(t *testing.T) {
+		body := bytes.NewBufferString(`["abc123", "def456"]`)
+		req, err := http.NewRequest(http.MethodDelete, ts.URL+"/api/user/urls", body)
+		require.NoError(t, err)
+		req.Header.Set("Content-Type", "application/json")
+		client := &http.Client{}
+		resp, err := client.Do(req)
+		require.NoError(t, err)
+		defer resp.Body.Close()
+		assert.Equal(t, http.StatusAccepted, resp.StatusCode)
+	})
+
+	t.Run("DELETE /api/user/urls invalid JSON", func(t *testing.T) {
+		body := bytes.NewBufferString(`not json`)
+		req, err := http.NewRequest(http.MethodDelete, ts.URL+"/api/user/urls", body)
+		require.NoError(t, err)
+		req.Header.Set("Content-Type", "application/json")
+		client := &http.Client{}
+		resp, err := client.Do(req)
+		require.NoError(t, err)
+		defer resp.Body.Close()
+		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	})
+
+	t.Run("DELETE /api/user/urls empty list", func(t *testing.T) {
+		body := bytes.NewBufferString(`[]`)
+		req, err := http.NewRequest(http.MethodDelete, ts.URL+"/api/user/urls", body)
+		require.NoError(t, err)
+		req.Header.Set("Content-Type", "application/json")
 		client := &http.Client{}
 		resp, err := client.Do(req)
 		require.NoError(t, err)

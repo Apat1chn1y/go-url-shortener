@@ -3,19 +3,33 @@
 package config
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"flag"
+	"log"
 	"os"
 	"strings"
 
 	"github.com/joho/godotenv"
 )
 
-// Config хранит параметры запуска сервиса.
 type Config struct {
-	ServerAddress   string // адрес и порт для запуска HTTP-сервера
-	BaseURL         string // базовый URL для формирования коротких ссылок
-	FileStoragePath string // путь к файлу для хранения данных
+	ServerAddress   string
+	BaseURL         string
+	FileStoragePath string
 	DatabaseDSN     string // строка подключения к базе данных
+	AuthKey         []byte
+}
+
+// generateRandomKey создаёт случайный 32-байтовый ключ в base64.
+func generateRandomKey() []byte {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		log.Fatal("failed to generate random auth key:", err)
+	}
+	key := make([]byte, base64.URLEncoding.EncodedLen(len(b)))
+	base64.URLEncoding.Encode(key, b)
+	return key
 }
 
 // NewConfig загружает конфигурацию в следующем порядке приоритета:
@@ -70,11 +84,21 @@ func NewConfig() *Config {
 		dbDSN = flagDB
 	}
 
+	var authKey []byte
+	keyStr, ok := os.LookupEnv("AUTH_KEY")
+	if !ok {
+		log.Println("WARNING: AUTH_KEY not set, generating random key. All existing user cookies will become invalid after restart.")
+		authKey = generateRandomKey()
+	} else {
+		authKey = []byte(keyStr)
+	}
+
 	return &Config{
 		ServerAddress:   addr,
 		BaseURL:         base,
 		FileStoragePath: filePath,
 		DatabaseDSN:     dbDSN,
+		AuthKey:         authKey,
 	}
 }
 
