@@ -12,6 +12,11 @@ type contextKey string
 
 const userIDKey contextKey = "userID"
 
+// UserIDKey возвращает ключ контекста для userID (используется в тестах).
+func UserIDKey() contextKey {
+	return userIDKey
+}
+
 // AuthMiddleware проверяет наличие валидной куки; если её нет или она невалидна,
 // генерирует новую и устанавливает через Set-Cookie.
 func AuthMiddleware(key []byte, logger zerolog.Logger) func(http.Handler) http.Handler {

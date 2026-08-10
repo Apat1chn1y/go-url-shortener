@@ -2,7 +2,11 @@
 package main
 
 import (
+	"context"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/Apat1chn1y/go-url-shortener.git/internal/audit"
 	"github.com/Apat1chn1y/go-url-shortener.git/internal/config"
@@ -51,6 +55,7 @@ func main() {
 		if err != nil {
 			logger.Error().Err(err).Str("path", cfg.AuditFilePath).Msg("Failed to create audit file writer")
 		} else {
+			defer fileWriter.Close() // закрываем файл при завершении программы
 			auditManager.AddWriter(fileWriter)
 			logger.Info().Str("path", cfg.AuditFilePath).Msg("Audit file writer enabled")
 		}
@@ -70,9 +75,27 @@ func main() {
 	router := handlers.NewRouter(handler, logger, cfg.AuthKey)
 	// Создание и запуск HTTP-сервера.
 	srv := server.New(cfg.ServerAddress, router)
-
 	logger.Info().Str("address", cfg.ServerAddress).Msg("Starting server")
-	if err := srv.Run(); err != nil {
-		logger.Fatal().Err(err).Msg("Server failed")
+
+	shutdown := make(chan os.Signal, 1)
+	signal.Notify(shutdown, os.Interrupt, syscall.SIGTERM)
+
+	go func() {
+		if err := srv.Run(); err != nil {
+			logger.Error().Err(err).Msg("Server error")
+		}
+	}()
+
+	<-shutdown
+	logger.Info().Msg("Shutting down gracefully...")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := srv.Shutdown(ctx); err != nil {
+		logger.Error().Err(err).Msg("Server shutdown error")
 	}
+
+	auditManager.Close()
+	logger.Info().Msg("Server stopped")
 }

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -22,7 +23,7 @@ type mockAuditWriter struct {
 	Last  audit.Event
 }
 
-func (w *mockAuditWriter) Write(event audit.Event) error {
+func (w *mockAuditWriter) Write(ctx context.Context, event audit.Event) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.Count++
@@ -42,28 +43,41 @@ func (w *mockAuditWriter) getCount() int {
 	return w.Count
 }
 
+// waitForAudit ожидает, пока количество событий достигнет ожидаемого.
+func waitForAudit(t *testing.T, w *mockAuditWriter, expected int, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if w.getCount() >= expected {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("expected %d audit events, got %d", expected, w.getCount())
+}
+
 func TestAuditShorten(t *testing.T) {
 	logger := zerolog.Nop()
 	mockWriter := &mockAuditWriter{}
 	auditManager := audit.NewManager()
+	auditManager.SetSyncMode(true) // синхронный режим
 	auditManager.AddWriter(mockWriter)
 
 	store := storage.NewInMemoryStorage()
 	shortener := service.NewShortener(store)
 	handler := NewShortenHandler(shortener, "http://localhost:8080/", logger, auditManager)
 
-	req := NewRequestWithUserID(http.MethodPost, "/", []byte("https://ya.ru"))
+	req := newRequestWithUserID(http.MethodPost, "/", []byte("https://ya.ru"))
 	req.Header.Set("Content-Type", "text/plain")
 	rr := httptest.NewRecorder()
 	handler.Create(rr, req)
 
 	assert.Equal(t, http.StatusCreated, rr.Code)
-	time.Sleep(20 * time.Millisecond)
-
+	// Проверяем, что событие записалось синхронно
 	assert.Equal(t, 1, mockWriter.getCount())
 	event := mockWriter.getLast()
 	assert.Equal(t, "shorten", event.Action)
-	assert.Equal(t, TestUserID, event.UserID)
+	assert.Equal(t, testUserID, event.UserID)
 	assert.Equal(t, "https://ya.ru", event.URL)
 	assert.NotZero(t, event.Ts)
 }
@@ -72,24 +86,23 @@ func TestAuditShortenJSON(t *testing.T) {
 	logger := zerolog.Nop()
 	mockWriter := &mockAuditWriter{}
 	auditManager := audit.NewManager()
+	auditManager.SetSyncMode(true)
 	auditManager.AddWriter(mockWriter)
 
 	store := storage.NewInMemoryStorage()
 	shortener := service.NewShortener(store)
 	handler := NewShortenHandler(shortener, "http://localhost:8080/", logger, auditManager)
 
-	req := NewRequestWithUserID(http.MethodPost, "/api/shorten", []byte(`{"url":"https://ya.ru"}`))
+	req := newRequestWithUserID(http.MethodPost, "/api/shorten", []byte(`{"url":"https://ya.ru"}`))
 	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
 	handler.HandleShortenJSON(rr, req)
 
 	assert.Equal(t, http.StatusCreated, rr.Code)
-	time.Sleep(20 * time.Millisecond)
-
 	assert.Equal(t, 1, mockWriter.getCount())
 	event := mockWriter.getLast()
 	assert.Equal(t, "shorten", event.Action)
-	assert.Equal(t, TestUserID, event.UserID)
+	assert.Equal(t, testUserID, event.UserID)
 	assert.Equal(t, "https://ya.ru", event.URL)
 	assert.NotZero(t, event.Ts)
 }
@@ -98,32 +111,28 @@ func TestAuditRedirect(t *testing.T) {
 	logger := zerolog.Nop()
 	mockWriter := &mockAuditWriter{}
 	auditManager := audit.NewManager()
+	auditManager.SetSyncMode(true)
 	auditManager.AddWriter(mockWriter)
 
 	store := storage.NewInMemoryStorage()
 	shortener := service.NewShortener(store)
 
-	// Создаём URL и получаем полный короткий URL
-	shortURL, err := shortener.Create("https://ya.ru", "http://localhost:8080/", TestUserID)
+	shortURL, err := shortener.Create("https://ya.ru", "http://localhost:8080/", testUserID)
 	require.NoError(t, err)
-	// Извлекаем ID из короткого URL
 	id := strings.TrimPrefix(shortURL, "http://localhost:8080/")
 	require.NotEmpty(t, id)
 
 	handler := NewShortenHandler(shortener, "http://localhost:8080/", logger, auditManager)
 
-	// Запрос на редирект с корректным ID
-	req := NewRequestWithUserID(http.MethodGet, "/"+id, nil)
+	req := newRequestWithUserID(http.MethodGet, "/"+id, nil)
 	rr := httptest.NewRecorder()
 	handler.Redirect(rr, req)
 
 	assert.Equal(t, http.StatusTemporaryRedirect, rr.Code)
-	time.Sleep(20 * time.Millisecond)
-
 	assert.Equal(t, 1, mockWriter.getCount())
 	event := mockWriter.getLast()
 	assert.Equal(t, "follow", event.Action)
-	assert.Equal(t, TestUserID, event.UserID)
+	assert.Equal(t, testUserID, event.UserID)
 	assert.Equal(t, "https://ya.ru", event.URL)
 	assert.NotZero(t, event.Ts)
 }
@@ -132,28 +141,27 @@ func TestAuditShortenDuplicate(t *testing.T) {
 	logger := zerolog.Nop()
 	mockWriter := &mockAuditWriter{}
 	auditManager := audit.NewManager()
+	auditManager.SetSyncMode(true)
 	auditManager.AddWriter(mockWriter)
 
 	store := storage.NewInMemoryStorage()
 	shortener := service.NewShortener(store)
 
-	_, err := shortener.Create("https://ya.ru", "http://localhost:8080/", TestUserID)
+	_, err := shortener.Create("https://ya.ru", "http://localhost:8080/", testUserID)
 	require.NoError(t, err)
 
 	handler := NewShortenHandler(shortener, "http://localhost:8080/", logger, auditManager)
 
-	req := NewRequestWithUserID(http.MethodPost, "/", []byte("https://ya.ru"))
+	req := newRequestWithUserID(http.MethodPost, "/", []byte("https://ya.ru"))
 	req.Header.Set("Content-Type", "text/plain")
 	rr := httptest.NewRecorder()
 	handler.Create(rr, req)
 
 	assert.Equal(t, http.StatusConflict, rr.Code)
-	time.Sleep(20 * time.Millisecond)
-
 	assert.Equal(t, 1, mockWriter.getCount())
 	event := mockWriter.getLast()
 	assert.Equal(t, "shorten", event.Action)
-	assert.Equal(t, TestUserID, event.UserID)
+	assert.Equal(t, testUserID, event.UserID)
 	assert.Equal(t, "https://ya.ru", event.URL)
 	assert.NotZero(t, event.Ts)
 }
@@ -166,7 +174,7 @@ func TestAuditNoWriter(t *testing.T) {
 	shortener := service.NewShortener(store)
 	handler := NewShortenHandler(shortener, "http://localhost:8080/", logger, auditManager)
 
-	req := NewRequestWithUserID(http.MethodPost, "/", []byte("https://ya.ru"))
+	req := newRequestWithUserID(http.MethodPost, "/", []byte("https://ya.ru"))
 	req.Header.Set("Content-Type", "text/plain")
 	rr := httptest.NewRecorder()
 	handler.Create(rr, req)

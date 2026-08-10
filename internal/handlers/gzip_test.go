@@ -33,7 +33,7 @@ func TestGzipMiddleware(t *testing.T) {
 		router := NewRouter(handler, logger, []byte("test-key"))
 
 		body := `{"url":"https://ya.ru"}`
-		req := NewRequestWithUserID(http.MethodPost, "/api/shorten", []byte(body))
+		req := newRequestWithUserID(http.MethodPost, "/api/shorten", []byte(body))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Accept-Encoding", "gzip")
 
@@ -64,7 +64,7 @@ func TestGzipMiddleware(t *testing.T) {
 		handler := NewShortenHandler(shortener, "http://localhost:8080/", logger, auditManager)
 		router := NewRouter(handler, logger, []byte("test-key"))
 
-		req := NewRequestWithUserID(http.MethodPost, "/", []byte("https://ya.ru"))
+		req := newRequestWithUserID(http.MethodPost, "/", []byte("https://ya.ru"))
 		req.Header.Set("Content-Type", "text/plain")
 		req.Header.Set("Accept-Encoding", "gzip")
 
@@ -91,7 +91,7 @@ func TestGzipMiddleware(t *testing.T) {
 		err = gzWriter.Close()
 		require.NoError(t, err)
 
-		req := NewRequestWithUserID(http.MethodPost, "/api/shorten", buf.Bytes())
+		req := newRequestWithUserID(http.MethodPost, "/api/shorten", buf.Bytes())
 		req.Header.Set("Content-Encoding", "gzip")
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Accept-Encoding", "gzip")
@@ -108,7 +108,7 @@ func TestGzipMiddleware(t *testing.T) {
 		handler := NewShortenHandler(shortener, "http://localhost:8080/", logger, auditManager)
 		router := NewRouter(handler, logger, []byte("test-key"))
 
-		req := NewRequestWithUserID(http.MethodPost, "/api/shorten", []byte("not gzip"))
+		req := newRequestWithUserID(http.MethodPost, "/api/shorten", []byte("not gzip"))
 		req.Header.Set("Content-Encoding", "gzip")
 		req.Header.Set("Content-Type", "application/json")
 

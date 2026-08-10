@@ -3,12 +3,14 @@ package audit
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"os"
 	"sync"
 	"time"
+
+	"github.com/hashicorp/go-retryablehttp"
 )
 
 // Event представляет событие аудита.
@@ -19,48 +21,114 @@ type Event struct {
 	URL    string `json:"url"`     // оригинальный (не сокращённый) URL
 }
 
-// Writer определяет интерфейс для отправки события аудита.
+// Writer определяет интерфейс для отправки события аудита с контекстом.
 type Writer interface {
-	Write(event Event) error
+	Write(ctx context.Context, event Event) error
+}
+
+// writerWorker – внутренний воркер для одного писателя.
+type writerWorker struct {
+	writer Writer
+	ch     chan Event    // буферизованный канал событий
+	done   chan struct{} // сигнал остановки
 }
 
 // Manager управляет писателями аудита (наблюдателями).
 type Manager struct {
 	mu      sync.Mutex
-	writers []Writer
+	workers []*writerWorker
+	wg      sync.WaitGroup
+	ctx     context.Context
+	cancel  context.CancelFunc
+	sync    bool // если true, отправка событий синхронная (для тестов)
 }
 
-// NewManager создаёт новый менеджер аудита.
+// NewManager создаёт новый менеджер аудита с контекстом для отмены.
 func NewManager() *Manager {
+	ctx, cancel := context.WithCancel(context.Background())
 	return &Manager{
-		writers: []Writer{},
+		ctx:    ctx,
+		cancel: cancel,
 	}
 }
 
-// AddWriter добавляет писателя.
+// SetSyncMode включает синхронную отправку событий (используется в тестах).
+func (m *Manager) SetSyncMode(sync bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.sync = sync
+}
+
+// AddWriter добавляет писателя и запускает фоновую горутину для его обработки.
 func (m *Manager) AddWriter(w Writer) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.writers = append(m.writers, w)
+
+	ch := make(chan Event, 1000) // буфер для предотвращения блокировки основного потока
+	done := make(chan struct{})
+	worker := &writerWorker{
+		writer: w,
+		ch:     ch,
+		done:   done,
+	}
+	m.workers = append(m.workers, worker)
+
+	m.wg.Add(1)
+	go func() {
+		defer m.wg.Done()
+		for {
+			select {
+			case event := <-ch:
+				_ = worker.writer.Write(m.ctx, event)
+			case <-done:
+				return
+			}
+		}
+	}()
 }
 
-// Notify отправляет событие всем зарегистрированным писателям (асинхронно).
+// Notify отправляет событие всем зарегистрированным писателям.
+// Если включён синхронный режим – вызывает Write напрямую, иначе отправляет в каналы воркеров.
 func (m *Manager) Notify(event Event) {
 	m.mu.Lock()
-	writers := make([]Writer, len(m.writers))
-	copy(writers, m.writers)
+	workers := make([]*writerWorker, len(m.workers))
+	copy(workers, m.workers)
+	syncMode := m.sync
 	m.mu.Unlock()
 
-	if len(writers) == 0 {
+	if len(workers) == 0 {
 		return
 	}
 
-	// Асинхронно отправляем каждому писателю
-	for _, w := range writers {
-		go func(w Writer) {
-			_ = w.Write(event) // игнорируем ошибки, чтобы не нарушать работу сервиса
-		}(w)
+	if syncMode {
+		for _, w := range workers {
+			_ = w.writer.Write(m.ctx, event)
+		}
+		return
 	}
+
+	// Асинхронный режим – отправляем в каналы воркеров
+	for _, w := range workers {
+		select {
+		case w.ch <- event:
+		default:
+			// канал полон – пропускаем
+		}
+	}
+}
+
+// Close останавливает все фоновые горутины и ожидает их завершения.
+func (m *Manager) Close() {
+	m.cancel()
+	m.mu.Lock()
+	workers := m.workers
+	m.workers = nil
+	m.mu.Unlock()
+
+	for _, w := range workers {
+		close(w.done)
+	}
+	m.wg.Wait()
 }
 
 // FileWriter реализует запись в файл.
@@ -78,51 +146,57 @@ func NewFileWriter(path string) (*FileWriter, error) {
 	return &FileWriter{file: f}, nil
 }
 
-// Write записывает событие в файл (одна строка JSON).
-func (w *FileWriter) Write(event Event) error {
-	w.mu.Lock()
-	defer w.mu.Unlock()
+// Write записывает событие в файл.
+func (w *FileWriter) Write(ctx context.Context, event Event) error {
 	data, err := json.Marshal(event)
 	if err != nil {
 		return err
 	}
-	_, err = w.file.Write(append(data, '\n'))
+	data = append(data, '\n')
+
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	_, err = w.file.Write(data)
 	return err
 }
 
-// Close закрывает файл (если необходимо).
+// Close закрывает файл.
 func (w *FileWriter) Close() error {
 	return w.file.Close()
 }
 
-// HTTPWriter реализует отправку на удалённый сервер методом POST.
+// HTTPWriter реализует отправку на удалённый сервер методом POST с автоматическими ретраями.
 type HTTPWriter struct {
 	url    string
-	client *http.Client
+	client *retryablehttp.Client
 }
 
-// NewHTTPWriter создаёт HTTP писатель.
+// NewHTTPWriter создаёт HTTP писатель с клиентом, поддерживающим ретраи.
 func NewHTTPWriter(url string) *HTTPWriter {
+	client := retryablehttp.NewClient()
+	client.RetryMax = 3
+	client.RetryWaitMin = 500 * time.Millisecond
+	client.RetryWaitMax = 5 * time.Second
 	return &HTTPWriter{
 		url:    url,
-		client: &http.Client{Timeout: 5 * time.Second},
+		client: client,
 	}
 }
 
-// Write отправляет событие на удалённый сервер.
-func (w *HTTPWriter) Write(event Event) error {
+// Write отправляет событие на удалённый сервер с автоматическими ретраями.
+func (w *HTTPWriter) Write(ctx context.Context, event Event) error {
 	data, err := json.Marshal(event)
 	if err != nil {
 		return err
 	}
-	req, err := http.NewRequest("POST", w.url, bytes.NewReader(data))
+	req, err := retryablehttp.NewRequestWithContext(ctx, "POST", w.url, bytes.NewReader(data))
 	if err != nil {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := w.client.Do(req)
 	if err != nil {
-		return err
+		return fmt.Errorf("audit http request failed: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {

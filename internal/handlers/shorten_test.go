@@ -37,7 +37,7 @@ func TestShortenHandler_Create(t *testing.T) {
 			body:        "https://ya.ru",
 			setupMock: func(m *storagemocks.MockStorage) {
 				m.EXPECT().FindByOriginal("https://ya.ru").Return("", storage.ErrNotFound).Once()
-				m.EXPECT().SaveForUser(mock.Anything, "https://ya.ru", TestUserID).Return(nil).Once()
+				m.EXPECT().SaveForUser(mock.Anything, "https://ya.ru", testUserID).Return(nil).Once()
 			},
 			expectedStatus: http.StatusCreated,
 			checkBody: func(t *testing.T, body string) {
@@ -70,7 +70,7 @@ func TestShortenHandler_Create(t *testing.T) {
 			body:        "https://example.com",
 			setupMock: func(m *storagemocks.MockStorage) {
 				m.EXPECT().FindByOriginal("https://example.com").Return("", storage.ErrNotFound).Once()
-				m.EXPECT().SaveForUser(mock.Anything, "https://example.com", TestUserID).Return(storage.ErrAlreadyExists).Times(10)
+				m.EXPECT().SaveForUser(mock.Anything, "https://example.com", testUserID).Return(storage.ErrAlreadyExists).Times(10)
 			},
 			expectedStatus: http.StatusInternalServerError,
 			expectedBody:   "Internal Server Error\n",
@@ -81,7 +81,7 @@ func TestShortenHandler_Create(t *testing.T) {
 			body:        "https://example.com",
 			setupMock: func(m *storagemocks.MockStorage) {
 				m.EXPECT().FindByOriginal("https://example.com").Return("", storage.ErrNotFound).Once()
-				m.EXPECT().SaveForUser(mock.Anything, "https://example.com", TestUserID).Return(errors.New("database connection lost")).Once()
+				m.EXPECT().SaveForUser(mock.Anything, "https://example.com", testUserID).Return(errors.New("database connection lost")).Once()
 			},
 			expectedStatus: http.StatusInternalServerError,
 			expectedBody:   "Internal Server Error\n",
@@ -95,9 +95,9 @@ func TestShortenHandler_Create(t *testing.T) {
 				tt.setupMock(mockStore)
 			}
 			shortener := service.NewShortener(mockStore)
-			handler := NewTestHandler(shortener, "http://localhost:8080/", logger)
+			handler := newTestHandler(shortener, "http://localhost:8080/", logger)
 
-			req := NewRequestWithUserID(http.MethodPost, "/", []byte(tt.body))
+			req := newRequestWithUserID(http.MethodPost, "/", []byte(tt.body))
 			req.Header.Set("Content-Type", tt.contentType)
 			rr := httptest.NewRecorder()
 
@@ -162,9 +162,9 @@ func TestShortenHandler_Redirect(t *testing.T) {
 				tt.setupMock(mockStore)
 			}
 			shortener := service.NewShortener(mockStore)
-			handler := NewTestHandler(shortener, "http://localhost:8080/", logger)
+			handler := newTestHandler(shortener, "http://localhost:8080/", logger)
 
-			req := NewRequestWithUserID(http.MethodGet, tt.path, nil)
+			req := newRequestWithUserID(http.MethodGet, tt.path, nil)
 			rr := httptest.NewRecorder()
 
 			handler.Redirect(rr, req)
@@ -198,7 +198,7 @@ func TestShortenHandler_HandleShortenJSON(t *testing.T) {
 			body:        `{"url":"https://ya.ru"}`,
 			setupMock: func(m *storagemocks.MockStorage) {
 				m.EXPECT().FindByOriginal("https://ya.ru").Return("", storage.ErrNotFound).Once()
-				m.EXPECT().SaveForUser(mock.Anything, "https://ya.ru", TestUserID).Return(nil).Once()
+				m.EXPECT().SaveForUser(mock.Anything, "https://ya.ru", testUserID).Return(nil).Once()
 			},
 			expectedStatus: http.StatusCreated,
 			checkHeaders: func(t *testing.T, headers http.Header) {
@@ -235,7 +235,7 @@ func TestShortenHandler_HandleShortenJSON(t *testing.T) {
 			body:        `{"url":"https://example.com"}`,
 			setupMock: func(m *storagemocks.MockStorage) {
 				m.EXPECT().FindByOriginal("https://example.com").Return("", storage.ErrNotFound).Once()
-				m.EXPECT().SaveForUser(mock.Anything, "https://example.com", TestUserID).Return(storage.ErrAlreadyExists).Times(10)
+				m.EXPECT().SaveForUser(mock.Anything, "https://example.com", testUserID).Return(storage.ErrAlreadyExists).Times(10)
 			},
 			expectedStatus: http.StatusInternalServerError,
 			expectedBody:   "Internal Server Error\n",
@@ -246,7 +246,7 @@ func TestShortenHandler_HandleShortenJSON(t *testing.T) {
 			body:        `{"url":"https://example.com"}`,
 			setupMock: func(m *storagemocks.MockStorage) {
 				m.EXPECT().FindByOriginal("https://example.com").Return("", storage.ErrNotFound).Once()
-				m.EXPECT().SaveForUser(mock.Anything, "https://example.com", TestUserID).Return(errors.New("database connection lost")).Once()
+				m.EXPECT().SaveForUser(mock.Anything, "https://example.com", testUserID).Return(errors.New("database connection lost")).Once()
 			},
 			expectedStatus: http.StatusInternalServerError,
 			expectedBody:   "Internal Server Error\n",
@@ -257,7 +257,7 @@ func TestShortenHandler_HandleShortenJSON(t *testing.T) {
 			body:        `{"url":"https://ya.ru"}`,
 			setupMock: func(m *storagemocks.MockStorage) {
 				m.EXPECT().FindByOriginal("https://ya.ru").Return("", storage.ErrNotFound).Once()
-				m.EXPECT().SaveForUser(mock.Anything, "https://ya.ru", TestUserID).Return(nil).Once()
+				m.EXPECT().SaveForUser(mock.Anything, "https://ya.ru", testUserID).Return(nil).Once()
 			},
 			expectedStatus: http.StatusCreated,
 			checkHeaders: func(t *testing.T, headers http.Header) {
@@ -273,9 +273,9 @@ func TestShortenHandler_HandleShortenJSON(t *testing.T) {
 				tt.setupMock(mockStore)
 			}
 			shortener := service.NewShortener(mockStore)
-			handler := NewTestHandler(shortener, "http://localhost:8080/", logger)
+			handler := newTestHandler(shortener, "http://localhost:8080/", logger)
 
-			req := NewRequestWithUserID(http.MethodPost, "/api/shorten", []byte(tt.body))
+			req := newRequestWithUserID(http.MethodPost, "/api/shorten", []byte(tt.body))
 			req.Header.Set("Content-Type", tt.contentType)
 			rr := httptest.NewRecorder()
 
@@ -306,7 +306,7 @@ func TestShortenHandler_Ping(t *testing.T) {
 	mockStore.EXPECT().Ping().Return(nil).Once()
 
 	shortener := service.NewShortener(mockStore)
-	handler := NewTestHandler(shortener, "http://localhost:8080/", logger)
+	handler := newTestHandler(shortener, "http://localhost:8080/", logger)
 
 	req := httptest.NewRequest(http.MethodGet, "/ping", nil)
 	rr := httptest.NewRecorder()
@@ -321,7 +321,7 @@ func TestShortenHandler_Ping_Error(t *testing.T) {
 	mockStore.EXPECT().Ping().Return(errors.New("db down")).Once()
 
 	shortener := service.NewShortener(mockStore)
-	handler := NewTestHandler(shortener, "http://localhost:8080/", logger)
+	handler := newTestHandler(shortener, "http://localhost:8080/", logger)
 
 	req := httptest.NewRequest(http.MethodGet, "/ping", nil)
 	rr := httptest.NewRecorder()
@@ -339,9 +339,9 @@ func TestShortenHandler_Create_Duplicate(t *testing.T) {
 	// Save не вызывается
 
 	shortener := service.NewShortener(mockStore)
-	handler := NewTestHandler(shortener, "http://localhost:8080/", logger)
+	handler := newTestHandler(shortener, "http://localhost:8080/", logger)
 
-	req := NewRequestWithUserID(http.MethodPost, "/", []byte("https://ya.ru"))
+	req := newRequestWithUserID(http.MethodPost, "/", []byte("https://ya.ru"))
 	req.Header.Set("Content-Type", "text/plain")
 	rr := httptest.NewRecorder()
 	handler.Create(rr, req)
@@ -357,9 +357,9 @@ func TestShortenHandler_HandleShortenJSON_Duplicate(t *testing.T) {
 	mockStore.EXPECT().FindByOriginal("https://ya.ru").Return("abc123", nil).Once()
 
 	shortener := service.NewShortener(mockStore)
-	handler := NewTestHandler(shortener, "http://localhost:8080/", logger)
+	handler := newTestHandler(shortener, "http://localhost:8080/", logger)
 
-	req := NewRequestWithUserID(http.MethodPost, "/api/shorten", []byte(`{"url":"https://ya.ru"}`))
+	req := newRequestWithUserID(http.MethodPost, "/api/shorten", []byte(`{"url":"https://ya.ru"}`))
 	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
 	handler.HandleShortenJSON(rr, req)
@@ -393,7 +393,7 @@ func TestShortenHandler_HandleBatchShorten(t *testing.T) {
 			setupMock: func(m *storagemocks.MockStorage) {
 				m.EXPECT().FindByOriginal("https://ya.ru").Return("", storage.ErrNotFound).Once()
 				m.EXPECT().FindByOriginal("https://google.com").Return("", storage.ErrNotFound).Once()
-				m.EXPECT().SaveBatchForUser(mock.Anything, TestUserID).Return(nil).Once()
+				m.EXPECT().SaveBatchForUser(mock.Anything, testUserID).Return(nil).Once()
 			},
 			expectedStatus: http.StatusCreated,
 			checkResponse: func(t *testing.T, body string) {
@@ -438,7 +438,7 @@ func TestShortenHandler_HandleBatchShorten(t *testing.T) {
 			body:        `[{"correlation_id":"1","original_url":"https://ya.ru"}]`,
 			setupMock: func(m *storagemocks.MockStorage) {
 				m.EXPECT().FindByOriginal("https://ya.ru").Return("", storage.ErrNotFound).Once()
-				m.EXPECT().SaveBatchForUser(mock.Anything, TestUserID).Return(storage.ErrAlreadyExists).Once()
+				m.EXPECT().SaveBatchForUser(mock.Anything, testUserID).Return(storage.ErrAlreadyExists).Once()
 			},
 			expectedStatus: http.StatusInternalServerError,
 			expectedBody:   "Internal Server Error\n",
@@ -452,9 +452,9 @@ func TestShortenHandler_HandleBatchShorten(t *testing.T) {
 				tt.setupMock(mockStore)
 			}
 			shortener := service.NewShortener(mockStore)
-			handler := NewTestHandler(shortener, "http://localhost:8080/", logger)
+			handler := newTestHandler(shortener, "http://localhost:8080/", logger)
 
-			req := NewRequestWithUserID(http.MethodPost, "/api/shorten/batch", []byte(tt.body))
+			req := newRequestWithUserID(http.MethodPost, "/api/shorten/batch", []byte(tt.body))
 			req.Header.Set("Content-Type", tt.contentType)
 			rr := httptest.NewRecorder()
 
@@ -481,12 +481,12 @@ func TestShortenHandler_GetUserURLs(t *testing.T) {
 			{ID: "abc123", ShortURL: "", OriginalURL: "https://ya.ru"},
 			{ID: "def456", ShortURL: "", OriginalURL: "https://google.com"},
 		}
-		mockStore.EXPECT().GetUserURLs(TestUserID).Return(expectedUserURLs, nil).Once()
+		mockStore.EXPECT().GetUserURLs(testUserID).Return(expectedUserURLs, nil).Once()
 
 		shortener := service.NewShortener(mockStore)
-		handler := NewTestHandler(shortener, "http://localhost:8080/", logger)
+		handler := newTestHandler(shortener, "http://localhost:8080/", logger)
 
-		req := NewRequestWithUserID(http.MethodGet, "/api/user/urls", nil)
+		req := newRequestWithUserID(http.MethodGet, "/api/user/urls", nil)
 		rr := httptest.NewRecorder()
 		handler.GetUserURLs(rr, req)
 
@@ -508,12 +508,12 @@ func TestShortenHandler_GetUserURLs(t *testing.T) {
 
 	t.Run("no URLs -> 204", func(t *testing.T) {
 		mockStore := storagemocks.NewMockStorage(t)
-		mockStore.EXPECT().GetUserURLs(TestUserID).Return([]storage.UserURL{}, nil).Once()
+		mockStore.EXPECT().GetUserURLs(testUserID).Return([]storage.UserURL{}, nil).Once()
 
 		shortener := service.NewShortener(mockStore)
-		handler := NewTestHandler(shortener, "http://localhost:8080/", logger)
+		handler := newTestHandler(shortener, "http://localhost:8080/", logger)
 
-		req := NewRequestWithUserID(http.MethodGet, "/api/user/urls", nil)
+		req := newRequestWithUserID(http.MethodGet, "/api/user/urls", nil)
 		rr := httptest.NewRecorder()
 		handler.GetUserURLs(rr, req)
 
@@ -523,7 +523,7 @@ func TestShortenHandler_GetUserURLs(t *testing.T) {
 	t.Run("no userID -> 401", func(t *testing.T) {
 		mockStore := storagemocks.NewMockStorage(t)
 		shortener := service.NewShortener(mockStore)
-		handler := NewTestHandler(shortener, "http://localhost:8080/", logger)
+		handler := newTestHandler(shortener, "http://localhost:8080/", logger)
 
 		req := httptest.NewRequest(http.MethodGet, "/api/user/urls", nil)
 		rr := httptest.NewRecorder()
@@ -535,12 +535,12 @@ func TestShortenHandler_GetUserURLs(t *testing.T) {
 
 	t.Run("storage error -> 500", func(t *testing.T) {
 		mockStore := storagemocks.NewMockStorage(t)
-		mockStore.EXPECT().GetUserURLs(TestUserID).Return(nil, errors.New("db error")).Once()
+		mockStore.EXPECT().GetUserURLs(testUserID).Return(nil, errors.New("db error")).Once()
 
 		shortener := service.NewShortener(mockStore)
-		handler := NewTestHandler(shortener, "http://localhost:8080/", logger)
+		handler := newTestHandler(shortener, "http://localhost:8080/", logger)
 
-		req := NewRequestWithUserID(http.MethodGet, "/api/user/urls", nil)
+		req := newRequestWithUserID(http.MethodGet, "/api/user/urls", nil)
 		rr := httptest.NewRecorder()
 		handler.GetUserURLs(rr, req)
 
@@ -556,9 +556,9 @@ func TestShortenHandler_Redirect_Gone(t *testing.T) {
 	mockStore.EXPECT().Load("deleted123").Return("", storage.ErrGone).Once()
 
 	shortener := service.NewShortener(mockStore)
-	handler := NewTestHandler(shortener, "http://localhost:8080/", logger)
+	handler := newTestHandler(shortener, "http://localhost:8080/", logger)
 
-	req := NewRequestWithUserID(http.MethodGet, "/deleted123", nil)
+	req := newRequestWithUserID(http.MethodGet, "/deleted123", nil)
 	rr := httptest.NewRecorder()
 	handler.Redirect(rr, req)
 
@@ -573,15 +573,15 @@ func TestShortenHandler_DeleteUserURLs(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		mockStore := storagemocks.NewMockStorage(t)
 		mockStore.EXPECT().
-			DeleteUserURLs(TestUserID, []string{"abc123", "def456"}).
+			DeleteUserURLs(testUserID, []string{"abc123", "def456"}).
 			Return(nil).
 			Maybe()
 
 		shortener := service.NewShortener(mockStore)
-		handler := NewTestHandler(shortener, "http://localhost:8080/", logger)
+		handler := newTestHandler(shortener, "http://localhost:8080/", logger)
 
 		body := []byte(`["abc123", "def456"]`)
-		req := NewRequestWithUserID(http.MethodDelete, "/api/user/urls", body)
+		req := newRequestWithUserID(http.MethodDelete, "/api/user/urls", body)
 		req.Header.Set("Content-Type", "application/json")
 		rr := httptest.NewRecorder()
 		handler.DeleteUserURLs(rr, req)
@@ -592,7 +592,7 @@ func TestShortenHandler_DeleteUserURLs(t *testing.T) {
 	t.Run("unauthorized - no userID", func(t *testing.T) {
 		mockStore := storagemocks.NewMockStorage(t)
 		shortener := service.NewShortener(mockStore)
-		handler := NewTestHandler(shortener, "http://localhost:8080/", logger)
+		handler := newTestHandler(shortener, "http://localhost:8080/", logger)
 
 		body := []byte(`["abc123"]`)
 		req := httptest.NewRequest(http.MethodDelete, "/api/user/urls", bytes.NewBuffer(body))
@@ -606,10 +606,10 @@ func TestShortenHandler_DeleteUserURLs(t *testing.T) {
 	t.Run("invalid JSON", func(t *testing.T) {
 		mockStore := storagemocks.NewMockStorage(t)
 		shortener := service.NewShortener(mockStore)
-		handler := NewTestHandler(shortener, "http://localhost:8080/", logger)
+		handler := newTestHandler(shortener, "http://localhost:8080/", logger)
 
 		body := []byte(`not json`)
-		req := NewRequestWithUserID(http.MethodDelete, "/api/user/urls", body)
+		req := newRequestWithUserID(http.MethodDelete, "/api/user/urls", body)
 		req.Header.Set("Content-Type", "application/json")
 		rr := httptest.NewRecorder()
 		handler.DeleteUserURLs(rr, req)
@@ -621,10 +621,10 @@ func TestShortenHandler_DeleteUserURLs(t *testing.T) {
 	t.Run("empty list", func(t *testing.T) {
 		mockStore := storagemocks.NewMockStorage(t)
 		shortener := service.NewShortener(mockStore)
-		handler := NewTestHandler(shortener, "http://localhost:8080/", logger)
+		handler := newTestHandler(shortener, "http://localhost:8080/", logger)
 
 		body := []byte(`[]`)
-		req := NewRequestWithUserID(http.MethodDelete, "/api/user/urls", body)
+		req := newRequestWithUserID(http.MethodDelete, "/api/user/urls", body)
 		req.Header.Set("Content-Type", "application/json")
 		rr := httptest.NewRecorder()
 		handler.DeleteUserURLs(rr, req)
