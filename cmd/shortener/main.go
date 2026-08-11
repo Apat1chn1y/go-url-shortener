@@ -77,8 +77,10 @@ func main() {
 	srv := server.New(cfg.ServerAddress, router)
 	logger.Info().Str("address", cfg.ServerAddress).Msg("Starting server")
 
-	shutdown := make(chan os.Signal, 1)
-	signal.Notify(shutdown, os.Interrupt, syscall.SIGTERM)
+	// Используем signal.NotifyContext для graceful shutdown.
+	// Контекст будет отменён при получении SIGINT или SIGTERM.
+	shutdownCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 
 	go func() {
 		if err := srv.Run(); err != nil {
@@ -86,16 +88,20 @@ func main() {
 		}
 	}()
 
-	<-shutdown
+	// Ожидаем сигнал завершения
+	<-shutdownCtx.Done()
 	logger.Info().Msg("Shutting down gracefully...")
 
+	// Контекст с таймаутом для завершения операций
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
+	// Останавливаем HTTP-сервер
 	if err := srv.Shutdown(ctx); err != nil {
 		logger.Error().Err(err).Msg("Server shutdown error")
 	}
 
+	// Закрываем аудит (останавливает горутины, закрывает каналы)
 	auditManager.Close()
 	logger.Info().Msg("Server stopped")
 }
