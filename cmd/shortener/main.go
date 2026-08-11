@@ -20,11 +20,16 @@ import (
 func main() {
 	// Настройка логгера: вывод в stdout в формате JSON (без ConsoleWriter, чтобы избежать паники)
 	logger := zerolog.New(os.Stdout).Level(zerolog.InfoLevel).With().Timestamp().Logger()
-	// Загрузка конфигурации из переменных окружения.
-	cfg := config.NewConfig()
 
 	var store storage.Storage
+	var cfg *config.Config
 	var err error
+
+	// Загрузка конфигурации из переменных окружения.
+	cfg, err = config.NewConfig()
+	if err != nil {
+		logger.Fatal().Err(err).Msg("Failed to load config")
+	}
 
 	// Приоритет хранилищ: PostgreSQL → файл → память
 	if cfg.DatabaseDSN != "" {
