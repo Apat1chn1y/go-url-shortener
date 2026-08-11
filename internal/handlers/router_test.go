@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/Apat1chn1y/go-url-shortener.git/internal/audit"
 	"github.com/Apat1chn1y/go-url-shortener.git/internal/handlers"
 	mocks "github.com/Apat1chn1y/go-url-shortener.git/internal/mocks/handlers"
 	"github.com/rs/zerolog"
@@ -16,7 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestRouterIntegration – существующий тест для основных эндпоинтов (GET, POST).
+// TestRouterIntegration
 func TestRouterIntegration(t *testing.T) {
 	mockShortener := mocks.NewMockURLShortener(t)
 
@@ -39,7 +40,7 @@ func TestRouterIntegration(t *testing.T) {
 	mockShortener.EXPECT().FindByOriginal(mock.Anything).Return("", nil).Maybe()
 	mockShortener.EXPECT().GetUserURLs(mock.Anything).Return(nil, nil).Maybe()
 
-	handler := handlers.NewShortenHandler(mockShortener, "http://localhost:8080/", zerolog.Nop())
+	handler := handlers.NewShortenHandler(mockShortener, "http://localhost:8080/", zerolog.Nop(), audit.NewManager())
 	router := handlers.NewRouter(handler, zerolog.Nop(), []byte("test-key"))
 	ts := httptest.NewServer(router)
 	defer ts.Close()
@@ -124,13 +125,13 @@ func TestRouterIntegration(t *testing.T) {
 	})
 }
 
-// TestRouterDeleteIntegration – интеграционный тест для DELETE /api/user/urls.
+// TestRouterDeleteIntegration
 func TestRouterDeleteIntegration(t *testing.T) {
 	mockShortener := mocks.NewMockURLShortener(t)
 
 	mockShortener.EXPECT().DeleteUserURLs(mock.Anything, []string{"abc123", "def456"}).Return(nil).Maybe()
 
-	handler := handlers.NewShortenHandler(mockShortener, "http://localhost:8080/", zerolog.Nop())
+	handler := handlers.NewShortenHandler(mockShortener, "http://localhost:8080/", zerolog.Nop(), audit.NewManager())
 	router := handlers.NewRouter(handler, zerolog.Nop(), []byte("test-key"))
 	ts := httptest.NewServer(router)
 	defer ts.Close()

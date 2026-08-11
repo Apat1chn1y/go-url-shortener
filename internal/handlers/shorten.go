@@ -6,7 +6,9 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
+	"github.com/Apat1chn1y/go-url-shortener.git/internal/audit"
 	"github.com/Apat1chn1y/go-url-shortener.git/internal/service"
 	"github.com/Apat1chn1y/go-url-shortener.git/internal/storage"
 	"github.com/rs/zerolog"
@@ -26,6 +28,7 @@ type ShortenHandler struct {
 	shortener URLShortener
 	baseURL   string
 	logger    zerolog.Logger
+	audit     *audit.Manager
 }
 
 // DeleteUserURLs обрабатывает DELETE /api/user/urls.
@@ -55,14 +58,16 @@ func (h *ShortenHandler) DeleteUserURLs(w http.ResponseWriter, r *http.Request) 
 	w.WriteHeader(http.StatusAccepted)
 }
 
-func NewShortenHandler(shortener URLShortener, baseURL string, logger zerolog.Logger) *ShortenHandler {
+func NewShortenHandler(shortener URLShortener, baseURL string, logger zerolog.Logger, audit *audit.Manager) *ShortenHandler {
 	return &ShortenHandler{
 		shortener: shortener,
 		baseURL:   baseURL,
 		logger:    logger,
+		audit:     audit,
 	}
 }
 
+// Create обрабатывает POST / (создание короткого URL из plain text).
 func (h *ShortenHandler) Create(w http.ResponseWriter, r *http.Request) {
 	if r.Header.Get("Content-Type") != "text/plain" {
 		http.Error(w, http.StatusText(http.StatusBadRequest)+": Content-Type must be text/plain", http.StatusBadRequest)
@@ -88,6 +93,15 @@ func (h *ShortenHandler) Create(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if errors.Is(err, service.ErrURLAlreadyExists) {
+			// При конфликте тоже считаем успешным действием (пользователь пытался сократить)
+			event := audit.Event{
+				Ts:     time.Now().Unix(),
+				Action: "shorten",
+				UserID: userID,
+				URL:    originalURL,
+			}
+			h.audit.Notify(event)
+
 			w.Header().Set("Content-Type", "text/plain")
 			w.WriteHeader(http.StatusConflict)
 			w.Write([]byte(shortURL))
@@ -96,6 +110,15 @@ func (h *ShortenHandler) Create(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
+
+	// Успешное создание
+	event := audit.Event{
+		Ts:     time.Now().Unix(),
+		Action: "shorten",
+		UserID: userID,
+		URL:    originalURL,
+	}
+	h.audit.Notify(event)
 
 	w.Header().Set("Content-Type", "text/plain")
 	w.WriteHeader(http.StatusCreated)
@@ -117,6 +140,17 @@ func (h *ShortenHandler) Redirect(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, http.StatusText(http.StatusBadRequest)+": URL not found", http.StatusBadRequest)
 		return
 	}
+
+	// Успешный редирект
+	userID := GetUserIDFromContext(r)
+	event := audit.Event{
+		Ts:     time.Now().Unix(),
+		Action: "follow",
+		UserID: userID,
+		URL:    originalURL,
+	}
+	h.audit.Notify(event)
+
 	w.Header().Set("Location", originalURL)
 	w.WriteHeader(http.StatusTemporaryRedirect)
 }
@@ -151,6 +185,15 @@ func (h *ShortenHandler) HandleShortenJSON(w http.ResponseWriter, r *http.Reques
 			return
 		}
 		if errors.Is(err, service.ErrURLAlreadyExists) {
+			// Конфликт – тоже считаем действием
+			event := audit.Event{
+				Ts:     time.Now().Unix(),
+				Action: "shorten",
+				UserID: userID,
+				URL:    req.URL,
+			}
+			h.audit.Notify(event)
+
 			resp := shortenResponse{Result: shortURL}
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusConflict)
@@ -160,6 +203,15 @@ func (h *ShortenHandler) HandleShortenJSON(w http.ResponseWriter, r *http.Reques
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
+
+	// Успешное создание
+	event := audit.Event{
+		Ts:     time.Now().Unix(),
+		Action: "shorten",
+		UserID: userID,
+		URL:    req.URL,
+	}
+	h.audit.Notify(event)
 
 	resp := shortenResponse{Result: shortURL}
 	w.Header().Set("Content-Type", "application/json")
@@ -220,18 +272,9 @@ func (h *ShortenHandler) HandleBatchShorten(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	resp := make([]struct {
-		CorrelationID string `json:"correlation_id"`
-		ShortURL      string `json:"short_url"`
-	}, len(results))
-	for i, v := range results {
-		resp[i].CorrelationID = v.CorrelationID
-		resp[i].ShortURL = v.ShortURL
-	}
-
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	if err := json.NewEncoder(w).Encode(resp); err != nil {
+	if err := json.NewEncoder(w).Encode(results); err != nil {
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
@@ -255,20 +298,15 @@ func (h *ShortenHandler) GetUserURLs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Формируем ответ с полными короткими URL
-	type responseItem struct {
-		ShortURL    string `json:"short_url"`
-		OriginalURL string `json:"original_url"`
-	}
-	response := make([]responseItem, len(userURLs))
-	for i, u := range userURLs {
-		response[i] = responseItem{
-			ShortURL:    h.baseURL + u.ID,
-			OriginalURL: u.OriginalURL,
-		}
+	for i := range userURLs {
+		userURLs[i].ShortURL = h.baseURL + userURLs[i].ID
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(userURLs); err != nil {
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		return
+	}
 }
 
 type shortenRequest struct {

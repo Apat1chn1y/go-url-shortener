@@ -1,3 +1,4 @@
+// Package storage предоставляет реализации хранилища URL: файловое, in-memory и PostgreSQL.
 package storage
 
 import (

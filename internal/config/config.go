@@ -13,12 +13,15 @@ import (
 	"github.com/joho/godotenv"
 )
 
+// Config содержит все параметры конфигурации приложения.
 type Config struct {
 	ServerAddress   string
 	BaseURL         string
 	FileStoragePath string
 	DatabaseDSN     string // строка подключения к базе данных
 	AuthKey         []byte
+	AuditFilePath   string // путь к файлу аудита (если не пуст)
+	AuditURL        string // URL удаленного сервера аудита (если не пуст)
 }
 
 // generateRandomKey создаёт случайный 32-байтовый ключ в base64.
@@ -33,8 +36,8 @@ func generateRandomKey() []byte {
 }
 
 // NewConfig загружает конфигурацию в следующем порядке приоритета:
-//  1. Переменные окружения (SERVER_ADDRESS, BASE_URL)
-//  2. Аргументы командной строки (-a, -b)
+//  1. Переменные окружения (SERVER_ADDRESS, BASE_URL, AUDIT_FILE, AUDIT_URL)
+//  2. Аргументы командной строки (-a, -b, --audit-file, --audit-url)
 //  3. Значения по умолчанию
 //  4. Если BaseURL всё ещё не задан, он автоматически формируется из ServerAddress.
 //
@@ -48,11 +51,13 @@ func NewConfig() *Config {
 	_ = godotenv.Load() // игнорируем ошибку отсутствия файла
 
 	// Определяем флаги командной строки
-	var flagAddr, flagBase, flagFile, flagDB string
+	var flagAddr, flagBase, flagFile, flagDB, flagAuditFile, flagAuditURL string
 	flag.StringVar(&flagAddr, "a", "", "адрес сервера")
 	flag.StringVar(&flagBase, "b", "", "базовый URL")
 	flag.StringVar(&flagFile, "f", "", "путь к файлу хранения данных")
 	flag.StringVar(&flagDB, "d", "", "DSN для подключения к PostgreSQL")
+	flag.StringVar(&flagAuditFile, "audit-file", "", "путь к файлу аудита")
+	flag.StringVar(&flagAuditURL, "audit-url", "", "URL удаленного сервера аудита")
 	flag.Parse()
 
 	addr, ok := os.LookupEnv("SERVER_ADDRESS")
@@ -84,6 +89,18 @@ func NewConfig() *Config {
 		dbDSN = flagDB
 	}
 
+	auditFile, ok := os.LookupEnv("AUDIT_FILE")
+	if !ok {
+		auditFile = flagAuditFile
+	}
+	// auditFile может быть пустым
+
+	auditURL, ok := os.LookupEnv("AUDIT_URL")
+	if !ok {
+		auditURL = flagAuditURL
+	}
+	// auditURL может быть пустым
+
 	var authKey []byte
 	keyStr, ok := os.LookupEnv("AUTH_KEY")
 	if !ok {
@@ -99,6 +116,8 @@ func NewConfig() *Config {
 		FileStoragePath: filePath,
 		DatabaseDSN:     dbDSN,
 		AuthKey:         authKey,
+		AuditFilePath:   auditFile,
+		AuditURL:        auditURL,
 	}
 }
 
