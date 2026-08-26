@@ -3,39 +3,52 @@ package pool
 import (
 	"sync"
 	"testing"
-
-	"github.com/Apat1chn1y/go-url-shortener.git/internal/storage"
 )
 
-// Тест демонстрирует базовую работу пула с объектами, имеющими метод Reset().
+// testObject — локальная заглушка для тестов.
+type testObject struct {
+	ID    int
+	Name  string
+	Tags  []string
+	Data  map[string]string
+	Child *testObject
+}
+
+func (o *testObject) Reset() {
+	if o == nil {
+		return
+	}
+	o.ID = 0
+	o.Name = ""
+	o.Tags = o.Tags[:0]
+	clear(o.Data)
+	if o.Child != nil {
+		o.Child.Reset()
+	}
+}
+
 func TestPool_Basic(t *testing.T) {
-	// Создаём пул для указателей на TestReset
-	p := New[*storage.TestReset](func() *storage.TestReset {
-		return &storage.TestReset{}
+	p := New[*testObject](func() *testObject {
+		return &testObject{}
 	})
 
-	// Получаем объект из пула (должен быть новым)
 	obj := p.Get()
 	if obj == nil {
 		t.Fatal("expected non-nil object")
 	}
 
-	// Модифицируем объект
 	obj.ID = 42
 	obj.Name = "test"
 	obj.Tags = []string{"a", "b"}
 	obj.Data = map[string]string{"key": "value"}
 
-	// Возвращаем в пул (автоматически вызывается Reset)
 	p.Put(obj)
 
-	// Получаем другой объект из пула (должен быть сброшенным)
 	obj2 := p.Get()
 	if obj2 == nil {
 		t.Fatal("expected non-nil object")
 	}
 
-	// Проверяем, что все поля сброшены
 	if obj2.ID != 0 {
 		t.Errorf("expected ID=0, got %d", obj2.ID)
 	}
@@ -53,10 +66,20 @@ func TestPool_Basic(t *testing.T) {
 	}
 }
 
-// Тест проверяет, что пул безопасен для конкурентного использования.
+func TestPool_NilFactory(t *testing.T) {
+	p := New[*testObject](nil)
+	obj := p.Get()
+	// zero-значение для указателя — nil
+	if obj != nil {
+		t.Errorf("expected nil, got %v", obj)
+	}
+	// Put не должен паниковать при nil
+	p.Put(obj)
+}
+
 func TestPool_Concurrent(t *testing.T) {
-	p := New[*storage.TestReset](func() *storage.TestReset {
-		return &storage.TestReset{}
+	p := New[*testObject](func() *testObject {
+		return &testObject{}
 	})
 
 	const goroutines = 10
@@ -70,10 +93,8 @@ func TestPool_Concurrent(t *testing.T) {
 			defer wg.Done()
 			for j := 0; j < iterations; j++ {
 				obj := p.Get()
-				// Изменяем объект, чтобы убедиться, что он сбрасывается
 				obj.ID = 123
 				obj.Name = "hello"
-				// Возвращаем в пул
 				p.Put(obj)
 			}
 		}()
@@ -81,7 +102,6 @@ func TestPool_Concurrent(t *testing.T) {
 
 	wg.Wait()
 
-	// Проверяем, что пул всё ещё работает и возвращает корректные объекты
 	obj := p.Get()
 	if obj == nil {
 		t.Fatal("expected non-nil object")
@@ -91,23 +111,18 @@ func TestPool_Concurrent(t *testing.T) {
 	}
 }
 
-// Бенчмарк показывает производительность пула по сравнению с созданием новых объектов.
 func BenchmarkPool_GetPut(b *testing.B) {
-	p := New[*storage.TestReset](func() *storage.TestReset {
-		return &storage.TestReset{}
+	p := New[*testObject](func() *testObject {
+		return &testObject{}
 	})
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		obj := p.Get()
 		p.Put(obj)
 	}
 }
 
-// Бенчмарк для сравнения с прямым созданием объектов.
 func BenchmarkNewObject(b *testing.B) {
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_ = &storage.TestReset{}
+	for b.Loop() {
+		_ = &testObject{}
 	}
 }
