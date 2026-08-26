@@ -6,7 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"flag"
-	"log"
+	"fmt"
 	"os"
 	"strings"
 
@@ -25,17 +25,18 @@ type Config struct {
 }
 
 // generateRandomKey создаёт случайный 32-байтовый ключ в base64.
-func generateRandomKey() []byte {
+// Возвращает ошибку, если не удалось прочитать случайные данные.
+func generateRandomKey() ([]byte, error) {
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
-		log.Fatal("failed to generate random auth key:", err)
+		return nil, fmt.Errorf("failed to generate random auth key: %w", err)
 	}
 	key := make([]byte, base64.URLEncoding.EncodedLen(len(b)))
 	base64.URLEncoding.Encode(key, b)
-	return key
+	return key, nil
 }
 
-// NewConfig загружает конфигурацию в следующем порядке приоритета:
+// NewConfig загружает конфигурацию и возвращает ошибку, если не удалось сгенерировать ключ.
 //  1. Переменные окружения (SERVER_ADDRESS, BASE_URL, AUDIT_FILE, AUDIT_URL)
 //  2. Аргументы командной строки (-a, -b, --audit-file, --audit-url)
 //  3. Значения по умолчанию
@@ -46,7 +47,7 @@ func generateRandomKey() []byte {
 //	export SERVER_ADDRESS=:9090 -> ServerAddress=":9090"
 //	go run . -a :8888            -> ServerAddress=":8888" (если нет SERVER_ADDRESS)
 //	без параметров               -> ServerAddress=":8080", BaseURL="http://localhost:8080/"
-func NewConfig() *Config {
+func NewConfig() (*Config, error) {
 	// Загрузка .env (если файл существует) – значения не перезаписывают уже установленные переменные окружения
 	_ = godotenv.Load() // игнорируем ошибку отсутствия файла
 
@@ -102,10 +103,13 @@ func NewConfig() *Config {
 	// auditURL может быть пустым
 
 	var authKey []byte
+	var err error
 	keyStr, ok := os.LookupEnv("AUTH_KEY")
 	if !ok {
-		log.Println("WARNING: AUTH_KEY not set, generating random key. All existing user cookies will become invalid after restart.")
-		authKey = generateRandomKey()
+		authKey, err = generateRandomKey()
+		if err != nil {
+			return nil, fmt.Errorf("generate auth key: %w", err)
+		}
 	} else {
 		authKey = []byte(keyStr)
 	}
@@ -118,7 +122,7 @@ func NewConfig() *Config {
 		AuthKey:         authKey,
 		AuditFilePath:   auditFile,
 		AuditURL:        auditURL,
-	}
+	}, nil
 }
 
 // autoBaseURL преобразует адрес сервера в HTTP-URL.

@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
@@ -17,14 +18,36 @@ import (
 	"github.com/rs/zerolog"
 )
 
+// Информация о сборке, заполняется при линковке через -ldflags.
+var (
+	buildVersion = "N/A"
+	buildDate    = "N/A"
+	buildCommit  = "N/A"
+)
+
+// printBuildInfo выводит информацию о версии, дате и коммите сборки.
+func printBuildInfo() {
+	fmt.Printf("Build version: %s\n", buildVersion)
+	fmt.Printf("Build date: %s\n", buildDate)
+	fmt.Printf("Build commit: %s\n", buildCommit)
+}
+
 func main() {
+	// Выводим информацию о сборке
+	printBuildInfo()
+
 	// Настройка логгера: вывод в stdout в формате JSON (без ConsoleWriter, чтобы избежать паники)
 	logger := zerolog.New(os.Stdout).Level(zerolog.InfoLevel).With().Timestamp().Logger()
-	// Загрузка конфигурации из переменных окружения.
-	cfg := config.NewConfig()
 
 	var store storage.Storage
+	var cfg *config.Config
 	var err error
+
+	// Загрузка конфигурации из переменных окружения.
+	cfg, err = config.NewConfig()
+	if err != nil {
+		logger.Fatal().Err(err).Msg("Failed to load config")
+	}
 
 	// Приоритет хранилищ: PostgreSQL → файл → память
 	if cfg.DatabaseDSN != "" {
