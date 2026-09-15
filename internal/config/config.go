@@ -22,6 +22,9 @@ type Config struct {
 	AuthKey         []byte
 	AuditFilePath   string // путь к файлу аудита (если не пуст)
 	AuditURL        string // URL удаленного сервера аудита (если не пуст)
+	EnableHTTPS     bool   // включает HTTPS, если true
+	TLSCertFile     string // путь к файлу сертификата
+	TLSKeyFile      string // путь к файлу приватного ключа
 }
 
 // generateRandomKey создаёт случайный 32-байтовый ключ в base64.
@@ -37,28 +40,23 @@ func generateRandomKey() ([]byte, error) {
 }
 
 // NewConfig загружает конфигурацию и возвращает ошибку, если не удалось сгенерировать ключ.
-//  1. Переменные окружения (SERVER_ADDRESS, BASE_URL, AUDIT_FILE, AUDIT_URL)
-//  2. Аргументы командной строки (-a, -b, --audit-file, --audit-url)
-//  3. Значения по умолчанию
-//  4. Если BaseURL всё ещё не задан, он автоматически формируется из ServerAddress.
-//
-// Примеры:
-//
-//	export SERVER_ADDRESS=:9090 -> ServerAddress=":9090"
-//	go run . -a :8888            -> ServerAddress=":8888" (если нет SERVER_ADDRESS)
-//	без параметров               -> ServerAddress=":8080", BaseURL="http://localhost:8080/"
 func NewConfig() (*Config, error) {
-	// Загрузка .env (если файл существует) – значения не перезаписывают уже установленные переменные окружения
-	_ = godotenv.Load() // игнорируем ошибку отсутствия файла
+	// Загрузка .env (если файл существует)
+	_ = godotenv.Load()
 
 	// Определяем флаги командной строки
 	var flagAddr, flagBase, flagFile, flagDB, flagAuditFile, flagAuditURL string
+	var flagCert, flagKey string
+	var flagEnableHTTPS bool
 	flag.StringVar(&flagAddr, "a", "", "адрес сервера")
 	flag.StringVar(&flagBase, "b", "", "базовый URL")
 	flag.StringVar(&flagFile, "f", "", "путь к файлу хранения данных")
 	flag.StringVar(&flagDB, "d", "", "DSN для подключения к PostgreSQL")
 	flag.StringVar(&flagAuditFile, "audit-file", "", "путь к файлу аудита")
 	flag.StringVar(&flagAuditURL, "audit-url", "", "URL удаленного сервера аудита")
+	flag.BoolVar(&flagEnableHTTPS, "s", false, "включить HTTPS")
+	flag.StringVar(&flagCert, "cert", "cert.pem", "путь к файлу TLS-сертификата")
+	flag.StringVar(&flagKey, "key", "key.pem", "путь к файлу приватного TLS-ключа")
 	flag.Parse()
 
 	addr, ok := os.LookupEnv("SERVER_ADDRESS")
@@ -94,13 +92,27 @@ func NewConfig() (*Config, error) {
 	if !ok {
 		auditFile = flagAuditFile
 	}
-	// auditFile может быть пустым
 
 	auditURL, ok := os.LookupEnv("AUDIT_URL")
 	if !ok {
 		auditURL = flagAuditURL
 	}
-	// auditURL может быть пустым
+
+	// ENABLE_HTTPS: переменная окружения имеет приоритет над флагом
+	enableHTTPS := flagEnableHTTPS
+	if v, ok := os.LookupEnv("ENABLE_HTTPS"); ok {
+		enableHTTPS = v == "true" || v == "1"
+	}
+
+	certFile := flagCert
+	if v, ok := os.LookupEnv("TLS_CERT_FILE"); ok {
+		certFile = v
+	}
+
+	keyFile := flagKey
+	if v, ok := os.LookupEnv("TLS_KEY_FILE"); ok {
+		keyFile = v
+	}
 
 	var authKey []byte
 	var err error
@@ -122,15 +134,13 @@ func NewConfig() (*Config, error) {
 		AuthKey:         authKey,
 		AuditFilePath:   auditFile,
 		AuditURL:        auditURL,
+		EnableHTTPS:     enableHTTPS,
+		TLSCertFile:     certFile,
+		TLSKeyFile:      keyFile,
 	}, nil
 }
 
 // autoBaseURL преобразует адрес сервера в HTTP-URL.
-// Примеры:
-//
-//	":8080"      → "http://localhost:8080"
-//	"localhost:43147" → "http://localhost:43147"
-//	"127.0.0.1:9090"  → "http://127.0.0.1:9090"
 func autoBaseURL(addr string) string {
 	host := strings.TrimPrefix(addr, "http://")
 	host = strings.TrimPrefix(host, "https://")
