@@ -56,7 +56,6 @@ func main() {
 		if err != nil {
 			logger.Fatal().Err(err).Msg("Cannot connect to database")
 		}
-		defer store.(*storage.PostgresStorage).Close()
 		logger.Info().Msg("Using PostgreSQL storage")
 	} else if cfg.FileStoragePath != "" {
 		// Инициализация файлового хранилища.
@@ -78,7 +77,6 @@ func main() {
 		if err != nil {
 			logger.Error().Err(err).Str("path", cfg.AuditFilePath).Msg("Failed to create audit file writer")
 		} else {
-			defer fileWriter.Close()
 			auditManager.AddWriter(fileWriter)
 			logger.Info().Str("path", cfg.AuditFilePath).Msg("Audit file writer enabled")
 		}
@@ -95,12 +93,16 @@ func main() {
 	handler := handlers.NewShortenHandler(shortener, cfg.BaseURL, logger, auditManager)
 	// Создание роутера
 	router := handlers.NewRouter(handler, logger, cfg.AuthKey)
-
 	// Создание и запуск HTTP-сервера.
 	srv := server.New(cfg.ServerAddress, router)
 
-	// Используем signal.NotifyContext для graceful shutdown.
-	shutdownCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	// Обрабатываем SIGINT, SIGTERM и SIGQUIT.
+	// Контекст будет отменён при их получении
+	shutdownCtx, stop := signal.NotifyContext(context.Background(),
+		os.Interrupt,    // SIGINT
+		syscall.SIGTERM, // SIGTERM
+		syscall.SIGQUIT, // SIGQUIT
+	)
 	defer stop()
 
 	go func() {
@@ -125,16 +127,25 @@ func main() {
 	<-shutdownCtx.Done()
 	logger.Info().Msg("Shutting down gracefully...")
 
-	// Контекст с таймаутом для завершения операций
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	// Даём серверу 30 секунд, чтобы завершить все активные запросы.
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	// Останавливаем HTTP-сервер
+	// Останавливаем HTTP-сервер (Shutdown дожидается завершения активных запросов).
 	if err := srv.Shutdown(ctx); err != nil {
 		logger.Error().Err(err).Msg("Server shutdown error")
 	}
 
-	// Закрываем аудит (останавливает горутины, закрывает каналы)
+	// Останавливаем аудит: завершаем горутины, сбрасываем буферизованные события.
 	auditManager.Close()
+	logger.Info().Msg("Audit manager stopped")
+
+	// 3. Закрываем хранилище: сохраняем данные (для файлового) и освобождаем ресурсы (для PostgreSQL).
+	if err := store.Close(); err != nil {
+		logger.Error().Err(err).Msg("Storage close error")
+	} else {
+		logger.Info().Msg("Storage closed successfully")
+	}
+
 	logger.Info().Msg("Server stopped")
 }

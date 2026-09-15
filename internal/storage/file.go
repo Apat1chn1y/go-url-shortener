@@ -233,3 +233,10 @@ func (fs *FileStorage) DeleteUserURLs(userID string, ids []string) error {
 	}
 	return fs.save()
 }
+
+// Close сохраняет данные на диск и завершает работу хранилища.
+func (fs *FileStorage) Close() error {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	return fs.save()
+}
