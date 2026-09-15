@@ -79,7 +79,7 @@ func TestAuditShorten(t *testing.T) {
 	assert.Equal(t, "shorten", event.Action)
 	assert.Equal(t, testUserID, event.UserID)
 	assert.Equal(t, "https://ya.ru", event.URL)
-	assert.NotZero(t, event.Ts)
+	assert.NotZero(t, event.TS)
 }
 
 func TestAuditShortenJSON(t *testing.T) {
@@ -104,7 +104,7 @@ func TestAuditShortenJSON(t *testing.T) {
 	assert.Equal(t, "shorten", event.Action)
 	assert.Equal(t, testUserID, event.UserID)
 	assert.Equal(t, "https://ya.ru", event.URL)
-	assert.NotZero(t, event.Ts)
+	assert.NotZero(t, event.TS)
 }
 
 func TestAuditRedirect(t *testing.T) {
@@ -134,7 +134,7 @@ func TestAuditRedirect(t *testing.T) {
 	assert.Equal(t, "follow", event.Action)
 	assert.Equal(t, testUserID, event.UserID)
 	assert.Equal(t, "https://ya.ru", event.URL)
-	assert.NotZero(t, event.Ts)
+	assert.NotZero(t, event.TS)
 }
 
 func TestAuditShortenDuplicate(t *testing.T) {
@@ -163,7 +163,7 @@ func TestAuditShortenDuplicate(t *testing.T) {
 	assert.Equal(t, "shorten", event.Action)
 	assert.Equal(t, testUserID, event.UserID)
 	assert.Equal(t, "https://ya.ru", event.URL)
-	assert.NotZero(t, event.Ts)
+	assert.NotZero(t, event.TS)
 }
 
 func TestAuditNoWriter(t *testing.T) {

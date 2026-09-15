@@ -78,7 +78,7 @@ func main() {
 		if err != nil {
 			logger.Error().Err(err).Str("path", cfg.AuditFilePath).Msg("Failed to create audit file writer")
 		} else {
-			defer fileWriter.Close() // закрываем файл при завершении программы
+			defer fileWriter.Close()
 			auditManager.AddWriter(fileWriter)
 			logger.Info().Str("path", cfg.AuditFilePath).Msg("Audit file writer enabled")
 		}
@@ -93,21 +93,31 @@ func main() {
 	shortener := service.NewShortener(store)
 	// Инициализация HTTP-обработчика.
 	handler := handlers.NewShortenHandler(shortener, cfg.BaseURL, logger, auditManager)
-
 	// Создание роутера
 	router := handlers.NewRouter(handler, logger, cfg.AuthKey)
+
 	// Создание и запуск HTTP-сервера.
 	srv := server.New(cfg.ServerAddress, router)
-	logger.Info().Str("address", cfg.ServerAddress).Msg("Starting server")
 
 	// Используем signal.NotifyContext для graceful shutdown.
-	// Контекст будет отменён при получении SIGINT или SIGTERM.
 	shutdownCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	go func() {
-		if err := srv.Run(); err != nil {
-			logger.Error().Err(err).Msg("Server error")
+		if cfg.EnableHTTPS {
+			logger.Info().
+				Str("address", cfg.ServerAddress).
+				Str("cert", cfg.TLSCertFile).
+				Str("key", cfg.TLSKeyFile).
+				Msg("Starting HTTPS server")
+			if err := srv.RunTLS(cfg.TLSCertFile, cfg.TLSKeyFile); err != nil {
+				logger.Error().Err(err).Msg("Server error")
+			}
+		} else {
+			logger.Info().Str("address", cfg.ServerAddress).Msg("Starting HTTP server")
+			if err := srv.Run(); err != nil {
+				logger.Error().Err(err).Msg("Server error")
+			}
 		}
 	}()
 
