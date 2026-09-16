@@ -10,6 +10,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/joho/godotenv"
@@ -177,7 +178,9 @@ func NewConfig() (*Config, error) {
 			return flagValue
 		}
 		if v, ok := os.LookupEnv(envName); ok {
-			return v == "true" || v == "1"
+			if parsed, err := strconv.ParseBool(v); err == nil {
+				return parsed
+			}
 		}
 		return fileValue
 	}

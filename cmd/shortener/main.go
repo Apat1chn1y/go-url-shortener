@@ -3,7 +3,9 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -93,7 +95,7 @@ func main() {
 	handler := handlers.NewShortenHandler(shortener, cfg.BaseURL, logger, auditManager)
 	// Создание роутера
 	router := handlers.NewRouter(handler, logger, cfg.AuthKey)
-	// Создание и запуск HTTP-сервера.
+	// Создание HTTP-сервера.
 	srv := server.New(cfg.ServerAddress, router)
 
 	// Обрабатываем SIGINT, SIGTERM и SIGQUIT.
@@ -105,25 +107,29 @@ func main() {
 	)
 	defer stop()
 
+	// Запускаем сервер в отдельной горутине.
 	go func() {
+		var runErr error
 		if cfg.EnableHTTPS {
 			logger.Info().
 				Str("address", cfg.ServerAddress).
 				Str("cert", cfg.TLSCertFile).
 				Str("key", cfg.TLSKeyFile).
 				Msg("Starting HTTPS server")
-			if err := srv.RunTLS(cfg.TLSCertFile, cfg.TLSKeyFile); err != nil {
-				logger.Error().Err(err).Msg("Server error")
-			}
+			runErr = srv.RunTLS(cfg.TLSCertFile, cfg.TLSKeyFile)
 		} else {
 			logger.Info().Str("address", cfg.ServerAddress).Msg("Starting HTTP server")
-			if err := srv.Run(); err != nil {
-				logger.Error().Err(err).Msg("Server error")
-			}
+			runErr = srv.Run()
+		}
+		// При штатном завершении Run/RunTLS возвращают http.ErrServerClosed — это не ошибка.
+		// Любая другая ошибка (порт занят, сертификат не читается) означает падение сервера.
+		if runErr != nil && !errors.Is(runErr, http.ErrServerClosed) {
+			logger.Error().Err(runErr).Msg("Server error")
+			stop() // разблокируем main, чтобы он пошёл по обычному пути завершения
 		}
 	}()
 
-	// Ожидаем сигнал завершения
+	// Ожидаем сигнал завершения (или падение сервера)
 	<-shutdownCtx.Done()
 	logger.Info().Msg("Shutting down gracefully...")
 
@@ -140,7 +146,7 @@ func main() {
 	auditManager.Close()
 	logger.Info().Msg("Audit manager stopped")
 
-	// 3. Закрываем хранилище: сохраняем данные (для файлового) и освобождаем ресурсы (для PostgreSQL).
+	// Закрываем хранилище: сохраняем данные (для файлового) и освобождаем ресурсы (для PostgreSQL).
 	if err := store.Close(); err != nil {
 		logger.Error().Err(err).Msg("Storage close error")
 	} else {
