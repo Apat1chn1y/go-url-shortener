@@ -15,7 +15,7 @@ import (
 
 // Event представляет событие аудита.
 type Event struct {
-	Ts     int64  `json:"ts"`      // unix timestamp
+	TS     int64  `json:"ts"`      // unix timestamp
 	Action string `json:"action"`  // "shorten" или "follow"
 	UserID string `json:"user_id"` // идентификатор пользователя (если есть)
 	URL    string `json:"url"`     // оригинальный (не сокращённый) URL

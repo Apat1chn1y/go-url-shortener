@@ -31,3 +31,7 @@ cmd/client/*
 .test.txt
 
 audit.log
+
+cert.pem
+key.pem
+test_config.json

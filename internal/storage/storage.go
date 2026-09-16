@@ -47,4 +47,7 @@ type Storage interface {
 
 	// DeleteUserURLs помечает URL как удалённые для данного пользователя.
 	DeleteUserURLs(userID string, ids []string) error
+
+	// Close корректно завершает работу хранилища: сохраняет данные и освобождает ресурсы.
+	Close() error
 }
