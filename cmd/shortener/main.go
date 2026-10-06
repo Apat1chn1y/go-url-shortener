@@ -94,7 +94,7 @@ func main() {
 	// Инициализация HTTP-обработчика.
 	handler := handlers.NewShortenHandler(shortener, cfg.BaseURL, logger, auditManager)
 	// Создание роутера
-	router := handlers.NewRouter(handler, logger, cfg.AuthKey)
+	router := handlers.NewRouter(handler, logger, cfg.AuthKey, cfg.TrustedSubnet)
 	// Создание HTTP-сервера.
 	srv := server.New(cfg.ServerAddress, router)
 

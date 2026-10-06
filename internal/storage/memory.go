@@ -154,3 +154,23 @@ func (s *InMemoryStorage) Ping() error {
 func (s *InMemoryStorage) Close() error {
 	return nil
 }
+
+// CountURLs возвращает общее количество сокращённых URL в памяти.
+func (s *InMemoryStorage) CountURLs() (int, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return len(s.data), nil
+}
+
+// CountUsers возвращает количество уникальных пользователей, сохранивших хотя бы один URL.
+func (s *InMemoryStorage) CountUsers() (int, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	users := make(map[string]struct{})
+	for _, entry := range s.data {
+		if entry.userID != "" {
+			users[entry.userID] = struct{}{}
+		}
+	}
+	return len(users), nil
+}

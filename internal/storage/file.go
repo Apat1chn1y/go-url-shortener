@@ -240,3 +240,23 @@ func (fs *FileStorage) Close() error {
 	defer fs.mu.Unlock()
 	return fs.save()
 }
+
+// CountURLs возвращает общее количество сокращённых URL в хранилище.
+func (fs *FileStorage) CountURLs() (int, error) {
+	fs.mu.RLock()
+	defer fs.mu.RUnlock()
+	return len(fs.data), nil
+}
+
+// CountUsers возвращает количество уникальных пользователей, сохранивших хотя бы один URL.
+func (fs *FileStorage) CountUsers() (int, error) {
+	fs.mu.RLock()
+	defer fs.mu.RUnlock()
+	users := make(map[string]struct{})
+	for _, entry := range fs.data {
+		if entry.userID != "" {
+			users[entry.userID] = struct{}{}
+		}
+	}
+	return len(users), nil
+}

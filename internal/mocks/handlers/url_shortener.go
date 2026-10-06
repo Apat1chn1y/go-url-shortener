@@ -414,3 +414,113 @@ func NewMockURLShortener(t interface {
 
 	return mock
 }
+
+// CountURLs provides a mock function with no fields
+func (_m *MockURLShortener) CountURLs() (int, error) {
+	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for CountURLs")
+	}
+
+	var r0 int
+	var r1 error
+	if rf, ok := ret.Get(0).(func() (int, error)); ok {
+		return rf()
+	}
+	if rf, ok := ret.Get(0).(func() int); ok {
+		r0 = rf()
+	} else {
+		r0 = ret.Get(0).(int)
+	}
+
+	if rf, ok := ret.Get(1).(func() error); ok {
+		r1 = rf()
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockURLShortener_CountURLs_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CountURLs'
+type MockURLShortener_CountURLs_Call struct {
+	*mock.Call
+}
+
+// CountURLs is a helper method to define mock.On call
+func (_e *MockURLShortener_Expecter) CountURLs() *MockURLShortener_CountURLs_Call {
+	return &MockURLShortener_CountURLs_Call{Call: _e.mock.On("CountURLs")}
+}
+
+func (_c *MockURLShortener_CountURLs_Call) Run(run func()) *MockURLShortener_CountURLs_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run()
+	})
+	return _c
+}
+
+func (_c *MockURLShortener_CountURLs_Call) Return(_a0 int, _a1 error) *MockURLShortener_CountURLs_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockURLShortener_CountURLs_Call) RunAndReturn(run func() (int, error)) *MockURLShortener_CountURLs_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// CountUsers provides a mock function with no fields
+func (_m *MockURLShortener) CountUsers() (int, error) {
+	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for CountUsers")
+	}
+
+	var r0 int
+	var r1 error
+	if rf, ok := ret.Get(0).(func() (int, error)); ok {
+		return rf()
+	}
+	if rf, ok := ret.Get(0).(func() int); ok {
+		r0 = rf()
+	} else {
+		r0 = ret.Get(0).(int)
+	}
+
+	if rf, ok := ret.Get(1).(func() error); ok {
+		r1 = rf()
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockURLShortener_CountUsers_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CountUsers'
+type MockURLShortener_CountUsers_Call struct {
+	*mock.Call
+}
+
+// CountUsers is a helper method to define mock.On call
+func (_e *MockURLShortener_Expecter) CountUsers() *MockURLShortener_CountUsers_Call {
+	return &MockURLShortener_CountUsers_Call{Call: _e.mock.On("CountUsers")}
+}
+
+func (_c *MockURLShortener_CountUsers_Call) Run(run func()) *MockURLShortener_CountUsers_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run()
+	})
+	return _c
+}
+
+func (_c *MockURLShortener_CountUsers_Call) Return(_a0 int, _a1 error) *MockURLShortener_CountUsers_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockURLShortener_CountUsers_Call) RunAndReturn(run func() (int, error)) *MockURLShortener_CountUsers_Call {
+	_c.Call.Return(run)
+	return _c
+}

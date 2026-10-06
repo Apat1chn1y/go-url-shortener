@@ -28,6 +28,7 @@ type Config struct {
 	EnableHTTPS     bool   // включает HTTPS, если true
 	TLSCertFile     string // путь к файлу сертификата
 	TLSKeyFile      string // путь к файлу приватного ключа
+	TrustedSubnet   string // доверенная подсеть в формате CIDR для доступа к внутренним эндпоинтам
 }
 
 // fileConfig описывает структуру JSON-файла конфигурации.
@@ -37,6 +38,7 @@ type fileConfig struct {
 	FileStoragePath string `json:"file_storage_path"`
 	DatabaseDSN     string `json:"database_dsn"`
 	EnableHTTPS     bool   `json:"enable_https"`
+	TrustedSubnet   string `json:"trusted_subnet"`
 }
 
 // generateRandomKey создаёт случайный 32-байтовый ключ в base64.
@@ -118,7 +120,7 @@ func NewConfig() (*Config, error) {
 
 	// Определяем флаги командной строки
 	var flagAddr, flagBase, flagFile, flagDB, flagAuditFile, flagAuditURL string
-	var flagCert, flagKey, flagConfigPath string
+	var flagCert, flagKey, flagConfigPath, flagTrustedSubnet string
 	var flagEnableHTTPS bool
 	flag.StringVar(&flagAddr, "a", "", "адрес сервера")
 	flag.StringVar(&flagBase, "b", "", "базовый URL")
@@ -131,6 +133,7 @@ func NewConfig() (*Config, error) {
 	flag.StringVar(&flagKey, "key", "key.pem", "путь к файлу приватного TLS-ключа")
 	flag.StringVar(&flagConfigPath, "c", "", "путь к JSON-файлу конфигурации")
 	flag.StringVar(&flagConfigPath, "config", "", "путь к JSON-файлу конфигурации")
+	flag.StringVar(&flagTrustedSubnet, "t", "", "доверенная подсеть в формате CIDR")
 	flag.Parse()
 
 	// Определяем, какие флаги были явно переданы
@@ -218,6 +221,9 @@ func NewConfig() (*Config, error) {
 	// TLS_KEY_FILE
 	keyFile := pickString("key", flagKey, "TLS_KEY_FILE", "", "key.pem")
 
+	// TRUSTED_SUBNET
+	trustedSubnet := pickString("t", flagTrustedSubnet, "TRUSTED_SUBNET", fc.TrustedSubnet, "")
+
 	// AUTH_KEY
 	var authKey []byte
 	var err error
@@ -242,6 +248,7 @@ func NewConfig() (*Config, error) {
 		EnableHTTPS:     enableHTTPS,
 		TLSCertFile:     certFile,
 		TLSKeyFile:      keyFile,
+		TrustedSubnet:   trustedSubnet,
 	}, nil
 }
 

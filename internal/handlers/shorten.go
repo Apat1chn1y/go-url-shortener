@@ -22,6 +22,8 @@ type URLShortener interface {
 	FindByOriginal(originalURL string) (string, error)
 	GetUserURLs(userID string) ([]storage.UserURL, error)
 	DeleteUserURLs(userID string, ids []string) error
+	CountURLs() (int, error)
+	CountUsers() (int, error)
 }
 
 type ShortenHandler struct {
@@ -306,6 +308,36 @@ func (h *ShortenHandler) GetUserURLs(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewEncoder(w).Encode(userURLs); err != nil {
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
+	}
+}
+
+// StatsResponse описывает ответ эндпоинта GET /api/internal/stats.
+type StatsResponse struct {
+	URLs  int `json:"urls"`  // количество сокращённых URL в сервисе
+	Users int `json:"users"` // количество пользователей в сервисе
+}
+
+// GetStats обрабатывает GET /api/internal/stats.
+// Возвращает JSON-объект с количеством сокращённых URL и пользователей.
+// Доступ контролируется middleware InternalOnly (доверенная подсеть).
+func (h *ShortenHandler) GetStats(w http.ResponseWriter, r *http.Request) {
+	urls, err := h.shortener.CountURLs()
+	if err != nil {
+		h.logger.Error().Err(err).Msg("failed to count URLs")
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		return
+	}
+	users, err := h.shortener.CountUsers()
+	if err != nil {
+		h.logger.Error().Err(err).Msg("failed to count users")
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		return
+	}
+	resp := StatsResponse{URLs: urls, Users: users}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		h.logger.Error().Err(err).Msg("failed to encode stats")
 	}
 }
 
