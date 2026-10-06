@@ -27,8 +27,13 @@ func (s *Server) Run() error {
 	return s.httpServer.ListenAndServe()
 }
 
-// Shutdown gracefully останавливает HTTP-сервер с заданным контекстом.
-// Используется для корректного завершения работы при получении сигнала.
+// RunTLS запускает HTTPS-сервер с использованием указанных сертификата и ключа.
+// Блокирует выполнение до остановки сервера или возникновения ошибки.
+func (s *Server) RunTLS(certFile, keyFile string) error {
+	return s.httpServer.ListenAndServeTLS(certFile, keyFile)
+}
+
+// Shutdown gracefully останавливает сервер с заданным контекстом.
 func (s *Server) Shutdown(ctx context.Context) error {
 	return s.httpServer.Shutdown(ctx)
 }

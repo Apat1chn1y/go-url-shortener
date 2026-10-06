@@ -95,7 +95,7 @@ func (h *ShortenHandler) Create(w http.ResponseWriter, r *http.Request) {
 		if errors.Is(err, service.ErrURLAlreadyExists) {
 			// При конфликте тоже считаем успешным действием (пользователь пытался сократить)
 			event := audit.Event{
-				Ts:     time.Now().Unix(),
+				TS:     time.Now().Unix(),
 				Action: "shorten",
 				UserID: userID,
 				URL:    originalURL,
@@ -113,7 +113,7 @@ func (h *ShortenHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 	// Успешное создание
 	event := audit.Event{
-		Ts:     time.Now().Unix(),
+		TS:     time.Now().Unix(),
 		Action: "shorten",
 		UserID: userID,
 		URL:    originalURL,
@@ -144,7 +144,7 @@ func (h *ShortenHandler) Redirect(w http.ResponseWriter, r *http.Request) {
 	// Успешный редирект
 	userID := GetUserIDFromContext(r)
 	event := audit.Event{
-		Ts:     time.Now().Unix(),
+		TS:     time.Now().Unix(),
 		Action: "follow",
 		UserID: userID,
 		URL:    originalURL,
@@ -187,7 +187,7 @@ func (h *ShortenHandler) HandleShortenJSON(w http.ResponseWriter, r *http.Reques
 		if errors.Is(err, service.ErrURLAlreadyExists) {
 			// Конфликт – тоже считаем действием
 			event := audit.Event{
-				Ts:     time.Now().Unix(),
+				TS:     time.Now().Unix(),
 				Action: "shorten",
 				UserID: userID,
 				URL:    req.URL,
@@ -206,7 +206,7 @@ func (h *ShortenHandler) HandleShortenJSON(w http.ResponseWriter, r *http.Reques
 
 	// Успешное создание
 	event := audit.Event{
-		Ts:     time.Now().Unix(),
+		TS:     time.Now().Unix(),
 		Action: "shorten",
 		UserID: userID,
 		URL:    req.URL,

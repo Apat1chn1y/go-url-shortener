@@ -120,13 +120,9 @@ func (s *Shortener) CreateBatch(items []BatchItem, baseURL, userID string) ([]Ba
 		if !errors.Is(err, storage.ErrNotFound) {
 			return nil, fmt.Errorf("find original: %w", err)
 		}
-		var id string
-		for attempts := 0; attempts < 10; attempts++ {
-			id, err = generateID()
-			if err != nil {
-				return nil, err
-			}
-			break
+		id, err := generateID()
+		if err != nil {
+			return nil, err
 		}
 		pending = append(pending, pendingItem{
 			correlationID: item.CorrelationID,

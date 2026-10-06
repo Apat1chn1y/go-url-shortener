@@ -150,3 +150,7 @@ func (s *InMemoryStorage) DeleteUserURLs(userID string, ids []string) error {
 func (s *InMemoryStorage) Ping() error {
 	return nil
 }
+
+func (s *InMemoryStorage) Close() error {
+	return nil
+}
