@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -13,11 +14,13 @@ import (
 
 	"github.com/Apat1chn1y/go-url-shortener.git/internal/audit"
 	"github.com/Apat1chn1y/go-url-shortener.git/internal/config"
+	"github.com/Apat1chn1y/go-url-shortener.git/internal/grpcserver"
 	"github.com/Apat1chn1y/go-url-shortener.git/internal/handlers"
 	"github.com/Apat1chn1y/go-url-shortener.git/internal/server"
 	"github.com/Apat1chn1y/go-url-shortener.git/internal/service"
 	"github.com/Apat1chn1y/go-url-shortener.git/internal/storage"
 	"github.com/rs/zerolog"
+	"google.golang.org/grpc"
 )
 
 // Информация о сборке, заполняется при линковке через -ldflags.
@@ -98,6 +101,23 @@ func main() {
 	// Создание HTTP-сервера.
 	srv := server.New(cfg.ServerAddress, router)
 
+	// Инициализация gRPC-сервера (если задан адрес).
+	var grpcSrv *grpc.Server
+	var grpcLis net.Listener
+	if cfg.GRPCAddress != "" {
+		grpcHandler := grpcserver.NewShortenerServer(shortener, cfg.BaseURL, logger, cfg.AuthKey)
+		gSrv, err := grpcserver.New(grpcHandler, cfg.EnableHTTPS, cfg.TLSCertFile, cfg.TLSKeyFile)
+		if err != nil {
+			logger.Fatal().Err(err).Msg("Failed to create gRPC server")
+		}
+		gLis, err := grpcserver.Listen(cfg.GRPCAddress)
+		if err != nil {
+			logger.Fatal().Err(err).Msg("Failed to listen on gRPC address")
+		}
+		grpcSrv = gSrv
+		grpcLis = gLis
+	}
+
 	// Обрабатываем SIGINT, SIGTERM и SIGQUIT.
 	// Контекст будет отменён при их получении
 	shutdownCtx, stop := signal.NotifyContext(context.Background(),
@@ -107,7 +127,7 @@ func main() {
 	)
 	defer stop()
 
-	// Запускаем сервер в отдельной горутине.
+	// Запускаем HTTP-сервер в отдельной горутине.
 	go func() {
 		var runErr error
 		if cfg.EnableHTTPS {
@@ -129,6 +149,17 @@ func main() {
 		}
 	}()
 
+	// Запускаем gRPC-сервер (если настроен) в отдельной горутине.
+	if grpcSrv != nil {
+		go func() {
+			logger.Info().Str("address", cfg.GRPCAddress).Msg("Starting gRPC server")
+			if err := grpcSrv.Serve(grpcLis); err != nil {
+				logger.Error().Err(err).Msg("gRPC server error")
+				stop()
+			}
+		}()
+	}
+
 	// Ожидаем сигнал завершения (или падение сервера)
 	<-shutdownCtx.Done()
 	logger.Info().Msg("Shutting down gracefully...")
@@ -140,6 +171,12 @@ func main() {
 	// Останавливаем HTTP-сервер (Shutdown дожидается завершения активных запросов).
 	if err := srv.Shutdown(ctx); err != nil {
 		logger.Error().Err(err).Msg("Server shutdown error")
+	}
+
+	// Останавливаем gRPC-сервер.
+	if grpcSrv != nil {
+		grpcSrv.GracefulStop()
+		logger.Info().Msg("gRPC server stopped")
 	}
 
 	// Останавливаем аудит: завершаем горутины, сбрасываем буферизованные события.

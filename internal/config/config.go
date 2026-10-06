@@ -19,6 +19,7 @@ import (
 // Config содержит все параметры конфигурации приложения.
 type Config struct {
 	ServerAddress   string
+	GRPCAddress     string // адрес gRPC-сервера (если пуст — gRPC не запускается)
 	BaseURL         string
 	FileStoragePath string
 	DatabaseDSN     string // строка подключения к базе данных
@@ -34,6 +35,7 @@ type Config struct {
 // fileConfig описывает структуру JSON-файла конфигурации.
 type fileConfig struct {
 	ServerAddress   string `json:"server_address"`
+	GRPCAddress     string `json:"grpc_server_address"`
 	BaseURL         string `json:"base_url"`
 	FileStoragePath string `json:"file_storage_path"`
 	DatabaseDSN     string `json:"database_dsn"`
@@ -119,10 +121,11 @@ func NewConfig() (*Config, error) {
 	_ = godotenv.Load()
 
 	// Определяем флаги командной строки
-	var flagAddr, flagBase, flagFile, flagDB, flagAuditFile, flagAuditURL string
+	var flagAddr, flagGRPC, flagBase, flagFile, flagDB, flagAuditFile, flagAuditURL string
 	var flagCert, flagKey, flagConfigPath, flagTrustedSubnet string
 	var flagEnableHTTPS bool
 	flag.StringVar(&flagAddr, "a", "", "адрес сервера")
+	flag.StringVar(&flagGRPC, "g", "", "адрес gRPC-сервера")
 	flag.StringVar(&flagBase, "b", "", "базовый URL")
 	flag.StringVar(&flagFile, "f", "", "путь к файлу хранения данных")
 	flag.StringVar(&flagDB, "d", "", "DSN для подключения к PostgreSQL")
@@ -191,6 +194,9 @@ func NewConfig() (*Config, error) {
 	// SERVER_ADDRESS
 	addr := pickString("a", flagAddr, "SERVER_ADDRESS", fc.ServerAddress, ":8080")
 
+	// GRPC_SERVER_ADDRESS
+	grpcAddr := pickString("g", flagGRPC, "GRPC_SERVER_ADDRESS", fc.GRPCAddress, "")
+
 	// BASE_URL
 	base := pickString("b", flagBase, "BASE_URL", fc.BaseURL, "")
 	if base == "" {
@@ -239,6 +245,7 @@ func NewConfig() (*Config, error) {
 
 	return &Config{
 		ServerAddress:   addr,
+		GRPCAddress:     grpcAddr,
 		BaseURL:         base,
 		FileStoragePath: filePath,
 		DatabaseDSN:     dbDSN,
