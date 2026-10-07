@@ -37,6 +37,33 @@ func printBuildInfo() {
 	fmt.Printf("Build commit: %s\n", buildCommit)
 }
 
+// grpcBundle объединяет gRPC-сервер и listener, чтобы main оперировал одним значением.
+type grpcBundle struct {
+	server   *grpc.Server
+	listener net.Listener
+}
+
+// setupGRPC создаёт gRPC-сервер, если задан cfg.GRPCAddress.
+// Возвращает nil, если адрес пуст — это означает «gRPC выключен»,
+// и main проверяет это одной строкой без обработки ошибок.
+// Ошибки создания фатальны: приложение не должно стартовать с невалидным
+// gRPC-сервером, поэтому здесь используется logger.Fatal.
+func setupGRPC(cfg *config.Config, shortener *service.Shortener, logger zerolog.Logger) *grpcBundle {
+	if cfg.GRPCAddress == "" {
+		return nil
+	}
+	handler := grpcserver.NewShortenerServer(shortener, cfg.BaseURL, logger, cfg.AuthKey)
+	srv, err := grpcserver.New(handler, cfg.EnableHTTPS, cfg.TLSCertFile, cfg.TLSKeyFile)
+	if err != nil {
+		logger.Fatal().Err(err).Msg("Failed to create gRPC server")
+	}
+	lis, err := grpcserver.Listen(cfg.GRPCAddress)
+	if err != nil {
+		logger.Fatal().Err(err).Msg("Failed to listen on gRPC address")
+	}
+	return &grpcBundle{server: srv, listener: lis}
+}
+
 func main() {
 	// Выводим информацию о сборке
 	printBuildInfo()
@@ -97,26 +124,12 @@ func main() {
 	// Инициализация HTTP-обработчика.
 	handler := handlers.NewShortenHandler(shortener, cfg.BaseURL, logger, auditManager)
 	// Создание роутера
-	router := handlers.NewRouter(handler, logger, cfg.AuthKey, cfg.TrustedSubnet)
+	router := handlers.NewRouter(handler, logger, cfg.AuthKey, cfg.TrustedSubnetNet)
 	// Создание HTTP-сервера.
 	srv := server.New(cfg.ServerAddress, router)
 
-	// Инициализация gRPC-сервера (если задан адрес).
-	var grpcSrv *grpc.Server
-	var grpcLis net.Listener
-	if cfg.GRPCAddress != "" {
-		grpcHandler := grpcserver.NewShortenerServer(shortener, cfg.BaseURL, logger, cfg.AuthKey)
-		gSrv, err := grpcserver.New(grpcHandler, cfg.EnableHTTPS, cfg.TLSCertFile, cfg.TLSKeyFile)
-		if err != nil {
-			logger.Fatal().Err(err).Msg("Failed to create gRPC server")
-		}
-		gLis, err := grpcserver.Listen(cfg.GRPCAddress)
-		if err != nil {
-			logger.Fatal().Err(err).Msg("Failed to listen on gRPC address")
-		}
-		grpcSrv = gSrv
-		grpcLis = gLis
-	}
+	// Инициализация gRPC-сервера (nil, если cfg.GRPCAddress не задан).
+	grpcBundle := setupGRPC(cfg, shortener, logger)
 
 	// Обрабатываем SIGINT, SIGTERM и SIGQUIT.
 	// Контекст будет отменён при их получении
@@ -150,10 +163,10 @@ func main() {
 	}()
 
 	// Запускаем gRPC-сервер (если настроен) в отдельной горутине.
-	if grpcSrv != nil {
+	if grpcBundle != nil {
 		go func() {
 			logger.Info().Str("address", cfg.GRPCAddress).Msg("Starting gRPC server")
-			if err := grpcSrv.Serve(grpcLis); err != nil {
+			if err := grpcBundle.server.Serve(grpcBundle.listener); err != nil {
 				logger.Error().Err(err).Msg("gRPC server error")
 				stop()
 			}
@@ -174,8 +187,8 @@ func main() {
 	}
 
 	// Останавливаем gRPC-сервер.
-	if grpcSrv != nil {
-		grpcSrv.GracefulStop()
+	if grpcBundle != nil {
+		grpcBundle.server.GracefulStop()
 		logger.Info().Msg("gRPC server stopped")
 	}
 

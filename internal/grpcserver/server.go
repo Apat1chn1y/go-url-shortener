@@ -22,17 +22,34 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
+// metadataAuthorizationKey — ключ metadata, в котором передаются
+// авторизационные данные (значение формата "<userID>|<signature>").
+const metadataAuthorizationKey = "authorization"
+
+// ErrUnauthenticated возвращается, если metadata authorization отсутствует
+// или содержит невалидную подпись.
+var ErrUnauthenticated = errors.New("unauthorized")
+
+// URLShortener — узкий интерфейс бизнес-логики, объявленный в пакете-потребителе.
+// Содержит только те методы, которые реально использует gRPC-слой, что упрощает
+// тестирование на моках и развязывает пакеты.
+type URLShortener interface {
+	Create(originalURL, baseURL, userID string) (string, error)
+	Get(id string) (string, error)
+	GetUserURLs(userID string) ([]storage.UserURL, error)
+}
+
 // ShortenerServer реализует gRPC-сервис ShortenerService.
 type ShortenerServer struct {
 	pb.UnimplementedShortenerServiceServer
-	shortener *service.Shortener
+	shortener URLShortener
 	baseURL   string
 	logger    zerolog.Logger
 	authKey   []byte
 }
 
 // NewShortenerServer создаёт gRPC-хендлер с общим сервисом бизнес-логики.
-func NewShortenerServer(shortener *service.Shortener, baseURL string, logger zerolog.Logger, authKey []byte) *ShortenerServer {
+func NewShortenerServer(shortener URLShortener, baseURL string, logger zerolog.Logger, authKey []byte) *ShortenerServer {
 	return &ShortenerServer{
 		shortener: shortener,
 		baseURL:   baseURL,
@@ -42,30 +59,38 @@ func NewShortenerServer(shortener *service.Shortener, baseURL string, logger zer
 }
 
 // userIDFromContext извлекает userID из metadata authorization.
-// Возвращает пустую строку, если metadata отсутствует или подпись невалидна.
-func (s *ShortenerServer) userIDFromContext(ctx context.Context) string {
+// Возвращает ErrUnauthenticated, если metadata отсутствует или подпись невалидна.
+// Решение о логировании и о том, как реагировать на ошибку, принимает вызывающий.
+func (s *ShortenerServer) userIDFromContext(ctx context.Context) (string, error) {
 	md, ok := metadata.FromIncomingContext(ctx)
 	if !ok {
-		return ""
+		return "", ErrUnauthenticated
 	}
-	vals := md.Get("authorization")
+	vals := md.Get(metadataAuthorizationKey)
 	if len(vals) == 0 {
-		return ""
+		return "", ErrUnauthenticated
 	}
 	userID, err := auth.ParseUserID(vals[0], s.authKey)
 	if err != nil {
-		s.logger.Warn().Err(err).Msg("invalid gRPC authorization metadata")
-		return ""
+		return "", fmt.Errorf("%w: %v", ErrUnauthenticated, err)
 	}
-	return userID
+	return userID, nil
 }
 
 // ShortenURL обрабатывает gRPC-запрос ShortenURL (аналог POST /api/shorten).
+// При конфликте (URL уже сокращён) возвращает статус OK, результат и
+// already_exists=true — клиент сам решает, считать это ошибкой или нет.
 func (s *ShortenerServer) ShortenURL(ctx context.Context, req *pb.URLShortenRequest) (*pb.URLShortenResponse, error) {
 	if req.GetUrl() == "" {
 		return nil, status.Error(codes.InvalidArgument, "url field is empty")
 	}
-	userID := s.userIDFromContext(ctx)
+
+	// Авторизация не обязательна: без metadata работаем от анонимного пользователя.
+	userID, err := s.userIDFromContext(ctx)
+	if err != nil {
+		s.logger.Debug().Err(err).Msg("gRPC shorten without valid auth")
+		userID = ""
+	}
 
 	result, err := s.shortener.Create(req.GetUrl(), s.baseURL, userID)
 	if err != nil {
@@ -73,9 +98,9 @@ func (s *ShortenerServer) ShortenURL(ctx context.Context, req *pb.URLShortenRequ
 			return nil, status.Error(codes.InvalidArgument, err.Error())
 		}
 		if errors.Is(err, service.ErrURLAlreadyExists) {
-			// Аналогично HTTP-конфликту: возвращаем существующий короткий URL,
-			// но сигнализируем клиенту, что запись уже существует.
-			return &pb.URLShortenResponse{Result: result}, status.Error(codes.AlreadyExists, "URL already exists")
+			// Конфликт — не ошибка транспорта: возвращаем существующий URL
+			// и флаг already_exists, чтобы клиент мог отличить создание от повтора.
+			return &pb.URLShortenResponse{Result: result, AlreadyExists: true}, nil
 		}
 		if errors.Is(err, service.ErrMaxAttemptsExceeded) {
 			return nil, status.Error(codes.Internal, err.Error())
@@ -106,8 +131,9 @@ func (s *ShortenerServer) ExpandURL(ctx context.Context, req *pb.URLExpandReques
 // ListUserURLs обрабатывает gRPC-запрос ListUserURLs (аналог GET /api/user/urls).
 // Требует валидного userID в metadata authorization.
 func (s *ShortenerServer) ListUserURLs(ctx context.Context, _ *emptypb.Empty) (*pb.UserURLsResponse, error) {
-	userID := s.userIDFromContext(ctx)
-	if userID == "" {
+	userID, err := s.userIDFromContext(ctx)
+	if err != nil {
+		s.logger.Warn().Err(err).Msg("gRPC ListUserURLs unauthorized")
 		return nil, status.Error(codes.Unauthenticated, "unauthorized")
 	}
 	userURLs, err := s.shortener.GetUserURLs(userID)

@@ -18,6 +18,9 @@ message URLShortenRequest {
 
 message URLShortenResponse {
   string result = 1;
+  // already_exists = true, если URL уже был сокращён ранее.
+  // В этом случае result содержит существующий короткий URL.
+  bool already_exists = 2;
 }
 
 message URLExpandRequest {

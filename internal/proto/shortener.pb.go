@@ -67,8 +67,11 @@ func (x *URLShortenRequest) GetUrl() string {
 }
 
 type URLShortenResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Result        string                 `protobuf:"bytes,1,opt,name=result,proto3" json:"result,omitempty"`
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	Result string                 `protobuf:"bytes,1,opt,name=result,proto3" json:"result,omitempty"`
+	// already_exists = true, если URL уже был сокращён ранее.
+	// В этом случае result содержит существующий короткий URL.
+	AlreadyExists bool `protobuf:"varint,2,opt,name=already_exists,json=alreadyExists,proto3" json:"already_exists,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -108,6 +111,13 @@ func (x *URLShortenResponse) GetResult() string {
 		return x.Result
 	}
 	return ""
+}
+
+func (x *URLShortenResponse) GetAlreadyExists() bool {
+	if x != nil {
+		return x.AlreadyExists
+	}
+	return false
 }
 
 type URLExpandRequest struct {
@@ -300,9 +310,10 @@ const file_internal_proto_shortener_proto_rawDesc = "" +
 	"\n" +
 	"\x1einternal/proto/shortener.proto\x12\tshortener\x1a\x1bgoogle/protobuf/empty.proto\"%\n" +
 	"\x11URLShortenRequest\x12\x10\n" +
-	"\x03url\x18\x01 \x01(\tR\x03url\",\n" +
+	"\x03url\x18\x01 \x01(\tR\x03url\"S\n" +
 	"\x12URLShortenResponse\x12\x16\n" +
-	"\x06result\x18\x01 \x01(\tR\x06result\"\"\n" +
+	"\x06result\x18\x01 \x01(\tR\x06result\x12%\n" +
+	"\x0ealready_exists\x18\x02 \x01(\bR\ralreadyExists\"\"\n" +
 	"\x10URLExpandRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\"+\n" +
 	"\x11URLExpandResponse\x12\x16\n" +

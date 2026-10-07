@@ -1,13 +1,14 @@
 package handlers
 
 import (
+	"net"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/rs/zerolog"
 )
 
-func NewRouter(h *ShortenHandler, logger zerolog.Logger, authKey []byte, trustedSubnet string) http.Handler {
+func NewRouter(h *ShortenHandler, logger zerolog.Logger, authKey []byte, trustedSubnet *net.IPNet) http.Handler {
 	r := chi.NewRouter()
 	r.Use(GzipMiddleware)
 	r.Use(LoggingMiddleware(logger))

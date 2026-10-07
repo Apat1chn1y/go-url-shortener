@@ -129,3 +129,20 @@ func TestListUserURLs_Success(t *testing.T) {
 	assert.Equal(t, "https://ya.ru", resp.GetUrl()[0].GetOriginalUrl())
 	assert.Contains(t, resp.GetUrl()[0].GetShortUrl(), "http://localhost:8080/")
 }
+
+func TestShortenURL_AlreadyExists(t *testing.T) {
+	client, _, _ := setupTestServer(t)
+
+	// Первый раз — реальное создание.
+	first, err := client.ShortenURL(context.Background(), &pb.URLShortenRequest{Url: "https://ya.ru"})
+	require.NoError(t, err)
+	assert.False(t, first.GetAlreadyExists())
+	assert.NotEmpty(t, first.GetResult())
+
+	// Второй раз — уже существует: получаем тот же URL и флаг already_exists,
+	// статус OK (никакой status.Error клиент не увидит).
+	second, err := client.ShortenURL(context.Background(), &pb.URLShortenRequest{Url: "https://ya.ru"})
+	require.NoError(t, err)
+	assert.True(t, second.GetAlreadyExists())
+	assert.Equal(t, first.GetResult(), second.GetResult())
+}
