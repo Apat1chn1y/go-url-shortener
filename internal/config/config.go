@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"net"
 	"os"
 	"strconv"
 	"strings"
@@ -18,25 +19,30 @@ import (
 
 // Config содержит все параметры конфигурации приложения.
 type Config struct {
-	ServerAddress   string
-	BaseURL         string
-	FileStoragePath string
-	DatabaseDSN     string // строка подключения к базе данных
-	AuthKey         []byte
-	AuditFilePath   string // путь к файлу аудита (если не пуст)
-	AuditURL        string // URL удаленного сервера аудита (если не пуст)
-	EnableHTTPS     bool   // включает HTTPS, если true
-	TLSCertFile     string // путь к файлу сертификата
-	TLSKeyFile      string // путь к файлу приватного ключа
+	ServerAddress    string
+	GRPCAddress      string // адрес gRPC-сервера (если пуст — gRPC не запускается)
+	BaseURL          string
+	FileStoragePath  string
+	DatabaseDSN      string // строка подключения к базе данных
+	AuthKey          []byte
+	AuditFilePath    string     // путь к файлу аудита (если не пуст)
+	AuditURL         string     // URL удаленного сервера аудита (если не пуст)
+	EnableHTTPS      bool       // включает HTTPS, если true
+	TLSCertFile      string     // путь к файлу сертификата
+	TLSKeyFile       string     // путь к файлу приватного ключа
+	TrustedSubnet    string     // доверенная подсеть в формате CIDR (как задана в конфиге)
+	TrustedSubnetNet *net.IPNet // разобранная подсеть; nil, если TrustedSubnet пуст
 }
 
 // fileConfig описывает структуру JSON-файла конфигурации.
 type fileConfig struct {
 	ServerAddress   string `json:"server_address"`
+	GRPCAddress     string `json:"grpc_server_address"`
 	BaseURL         string `json:"base_url"`
 	FileStoragePath string `json:"file_storage_path"`
 	DatabaseDSN     string `json:"database_dsn"`
 	EnableHTTPS     bool   `json:"enable_https"`
+	TrustedSubnet   string `json:"trusted_subnet"`
 }
 
 // generateRandomKey создаёт случайный 32-байтовый ключ в base64.
@@ -105,6 +111,20 @@ func loadFileConfig(path string) (*fileConfig, error) {
 	return &fc, nil
 }
 
+// ParseTrustedSubnet разбирает строку CIDR в *net.IPNet.
+// Пустая строка возвращает (nil, nil) — доверенная подсеть не задана,
+// доступ к внутренним эндпоинтам запрещён для всех.
+func ParseTrustedSubnet(cidr string) (*net.IPNet, error) {
+	if cidr == "" {
+		return nil, nil
+	}
+	_, parsed, err := net.ParseCIDR(cidr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid trusted_subnet %q: %w", cidr, err)
+	}
+	return parsed, nil
+}
+
 // NewConfig загружает конфигурацию и возвращает ошибку, если не удалось сгенерировать ключ.
 //
 // Приоритет значений (от старшего к младшему):
@@ -117,10 +137,11 @@ func NewConfig() (*Config, error) {
 	_ = godotenv.Load()
 
 	// Определяем флаги командной строки
-	var flagAddr, flagBase, flagFile, flagDB, flagAuditFile, flagAuditURL string
-	var flagCert, flagKey, flagConfigPath string
+	var flagAddr, flagGRPC, flagBase, flagFile, flagDB, flagAuditFile, flagAuditURL string
+	var flagCert, flagKey, flagConfigPath, flagTrustedSubnet string
 	var flagEnableHTTPS bool
 	flag.StringVar(&flagAddr, "a", "", "адрес сервера")
+	flag.StringVar(&flagGRPC, "g", "", "адрес gRPC-сервера")
 	flag.StringVar(&flagBase, "b", "", "базовый URL")
 	flag.StringVar(&flagFile, "f", "", "путь к файлу хранения данных")
 	flag.StringVar(&flagDB, "d", "", "DSN для подключения к PostgreSQL")
@@ -131,6 +152,7 @@ func NewConfig() (*Config, error) {
 	flag.StringVar(&flagKey, "key", "key.pem", "путь к файлу приватного TLS-ключа")
 	flag.StringVar(&flagConfigPath, "c", "", "путь к JSON-файлу конфигурации")
 	flag.StringVar(&flagConfigPath, "config", "", "путь к JSON-файлу конфигурации")
+	flag.StringVar(&flagTrustedSubnet, "t", "", "доверенная подсеть в формате CIDR")
 	flag.Parse()
 
 	// Определяем, какие флаги были явно переданы
@@ -188,6 +210,9 @@ func NewConfig() (*Config, error) {
 	// SERVER_ADDRESS
 	addr := pickString("a", flagAddr, "SERVER_ADDRESS", fc.ServerAddress, ":8080")
 
+	// GRPC_SERVER_ADDRESS
+	grpcAddr := pickString("g", flagGRPC, "GRPC_SERVER_ADDRESS", fc.GRPCAddress, "")
+
 	// BASE_URL
 	base := pickString("b", flagBase, "BASE_URL", fc.BaseURL, "")
 	if base == "" {
@@ -218,9 +243,15 @@ func NewConfig() (*Config, error) {
 	// TLS_KEY_FILE
 	keyFile := pickString("key", flagKey, "TLS_KEY_FILE", "", "key.pem")
 
+	// TRUSTED_SUBNET — парсим и валидируем сразу на старте.
+	trustedSubnet := pickString("t", flagTrustedSubnet, "TRUSTED_SUBNET", fc.TrustedSubnet, "")
+	trustedSubnetNet, err := ParseTrustedSubnet(trustedSubnet)
+	if err != nil {
+		return nil, err
+	}
+
 	// AUTH_KEY
 	var authKey []byte
-	var err error
 	keyStr, ok := os.LookupEnv("AUTH_KEY")
 	if !ok || keyStr == "" {
 		authKey, err = generateRandomKey()
@@ -232,16 +263,19 @@ func NewConfig() (*Config, error) {
 	}
 
 	return &Config{
-		ServerAddress:   addr,
-		BaseURL:         base,
-		FileStoragePath: filePath,
-		DatabaseDSN:     dbDSN,
-		AuthKey:         authKey,
-		AuditFilePath:   auditFile,
-		AuditURL:        auditURL,
-		EnableHTTPS:     enableHTTPS,
-		TLSCertFile:     certFile,
-		TLSKeyFile:      keyFile,
+		ServerAddress:    addr,
+		GRPCAddress:      grpcAddr,
+		BaseURL:          base,
+		FileStoragePath:  filePath,
+		DatabaseDSN:      dbDSN,
+		AuthKey:          authKey,
+		AuditFilePath:    auditFile,
+		AuditURL:         auditURL,
+		EnableHTTPS:      enableHTTPS,
+		TLSCertFile:      certFile,
+		TLSKeyFile:       keyFile,
+		TrustedSubnet:    trustedSubnet,
+		TrustedSubnetNet: trustedSubnetNet,
 	}, nil
 }
 

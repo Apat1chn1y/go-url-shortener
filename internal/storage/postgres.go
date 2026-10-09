@@ -247,6 +247,28 @@ func (s *PostgresStorage) Ping() error {
 	return s.pool.Ping(context.TODO())
 }
 
+// CountURLs возвращает общее количество сокращённых URL в БД.
+func (s *PostgresStorage) CountURLs() (int, error) {
+	var count int
+	err := s.pool.QueryRow(context.TODO(), "SELECT COUNT(*) FROM short_urls").Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("count urls: %w", err)
+	}
+	return count, nil
+}
+
+// CountUsers возвращает количество уникальных пользователей,
+// сохранивших хотя бы один URL (непустой user_id).
+func (s *PostgresStorage) CountUsers() (int, error) {
+	var count int
+	err := s.pool.QueryRow(context.TODO(),
+		"SELECT COUNT(DISTINCT user_id) FROM short_urls WHERE user_id IS NOT NULL AND user_id != ''").Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("count users: %w", err)
+	}
+	return count, nil
+}
+
 // Close закрывает пул соединений.
 func (s *PostgresStorage) Close() error {
 	s.pool.Close()

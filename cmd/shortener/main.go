@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -13,11 +14,13 @@ import (
 
 	"github.com/Apat1chn1y/go-url-shortener.git/internal/audit"
 	"github.com/Apat1chn1y/go-url-shortener.git/internal/config"
+	"github.com/Apat1chn1y/go-url-shortener.git/internal/grpcserver"
 	"github.com/Apat1chn1y/go-url-shortener.git/internal/handlers"
 	"github.com/Apat1chn1y/go-url-shortener.git/internal/server"
 	"github.com/Apat1chn1y/go-url-shortener.git/internal/service"
 	"github.com/Apat1chn1y/go-url-shortener.git/internal/storage"
 	"github.com/rs/zerolog"
+	"google.golang.org/grpc"
 )
 
 // Информация о сборке, заполняется при линковке через -ldflags.
@@ -32,6 +35,33 @@ func printBuildInfo() {
 	fmt.Printf("Build version: %s\n", buildVersion)
 	fmt.Printf("Build date: %s\n", buildDate)
 	fmt.Printf("Build commit: %s\n", buildCommit)
+}
+
+// grpcBundle объединяет gRPC-сервер и listener, чтобы main оперировал одним значением.
+type grpcBundle struct {
+	server   *grpc.Server
+	listener net.Listener
+}
+
+// setupGRPC создаёт gRPC-сервер, если задан cfg.GRPCAddress.
+// Возвращает nil, если адрес пуст — это означает «gRPC выключен»,
+// и main проверяет это одной строкой без обработки ошибок.
+// Ошибки создания фатальны: приложение не должно стартовать с невалидным
+// gRPC-сервером, поэтому здесь используется logger.Fatal.
+func setupGRPC(cfg *config.Config, shortener *service.Shortener, logger zerolog.Logger) *grpcBundle {
+	if cfg.GRPCAddress == "" {
+		return nil
+	}
+	handler := grpcserver.NewShortenerServer(shortener, cfg.BaseURL, logger, cfg.AuthKey)
+	srv, err := grpcserver.New(handler, cfg.EnableHTTPS, cfg.TLSCertFile, cfg.TLSKeyFile)
+	if err != nil {
+		logger.Fatal().Err(err).Msg("Failed to create gRPC server")
+	}
+	lis, err := grpcserver.Listen(cfg.GRPCAddress)
+	if err != nil {
+		logger.Fatal().Err(err).Msg("Failed to listen on gRPC address")
+	}
+	return &grpcBundle{server: srv, listener: lis}
 }
 
 func main() {
@@ -94,9 +124,12 @@ func main() {
 	// Инициализация HTTP-обработчика.
 	handler := handlers.NewShortenHandler(shortener, cfg.BaseURL, logger, auditManager)
 	// Создание роутера
-	router := handlers.NewRouter(handler, logger, cfg.AuthKey)
+	router := handlers.NewRouter(handler, logger, cfg.AuthKey, cfg.TrustedSubnetNet)
 	// Создание HTTP-сервера.
 	srv := server.New(cfg.ServerAddress, router)
+
+	// Инициализация gRPC-сервера (nil, если cfg.GRPCAddress не задан).
+	grpcBundle := setupGRPC(cfg, shortener, logger)
 
 	// Обрабатываем SIGINT, SIGTERM и SIGQUIT.
 	// Контекст будет отменён при их получении
@@ -107,7 +140,7 @@ func main() {
 	)
 	defer stop()
 
-	// Запускаем сервер в отдельной горутине.
+	// Запускаем HTTP-сервер в отдельной горутине.
 	go func() {
 		var runErr error
 		if cfg.EnableHTTPS {
@@ -129,6 +162,17 @@ func main() {
 		}
 	}()
 
+	// Запускаем gRPC-сервер (если настроен) в отдельной горутине.
+	if grpcBundle != nil {
+		go func() {
+			logger.Info().Str("address", cfg.GRPCAddress).Msg("Starting gRPC server")
+			if err := grpcBundle.server.Serve(grpcBundle.listener); err != nil {
+				logger.Error().Err(err).Msg("gRPC server error")
+				stop()
+			}
+		}()
+	}
+
 	// Ожидаем сигнал завершения (или падение сервера)
 	<-shutdownCtx.Done()
 	logger.Info().Msg("Shutting down gracefully...")
@@ -140,6 +184,12 @@ func main() {
 	// Останавливаем HTTP-сервер (Shutdown дожидается завершения активных запросов).
 	if err := srv.Shutdown(ctx); err != nil {
 		logger.Error().Err(err).Msg("Server shutdown error")
+	}
+
+	// Останавливаем gRPC-сервер.
+	if grpcBundle != nil {
+		grpcBundle.server.GracefulStop()
+		logger.Info().Msg("gRPC server stopped")
 	}
 
 	// Останавливаем аудит: завершаем горутины, сбрасываем буферизованные события.

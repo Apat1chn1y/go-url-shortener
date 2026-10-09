@@ -153,6 +153,16 @@ func (s *Shortener) GetUserURLs(userID string) ([]storage.UserURL, error) {
 	return s.storage.GetUserURLs(userID)
 }
 
+// CountURLs возвращает общее количество сокращённых URL в сервисе.
+func (s *Shortener) CountURLs() (int, error) {
+	return s.storage.CountURLs()
+}
+
+// CountUsers возвращает количество уникальных пользователей в сервисе.
+func (s *Shortener) CountUsers() (int, error) {
+	return s.storage.CountUsers()
+}
+
 // generateID генерирует случайный ID.
 func generateID() (string, error) {
 	buf := make([]byte, idLength)

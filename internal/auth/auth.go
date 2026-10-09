@@ -59,9 +59,16 @@ func GetUserID(r *http.Request, key []byte) (string, error) {
 	if err != nil {
 		return "", nil // куки нет
 	}
-	parts := strings.SplitN(cookie.Value, "|", 2)
+	return ParseUserID(cookie.Value, key)
+}
+
+// ParseUserID разбирает значение формата "userID|signature", проверяет подпись
+// и возвращает userID. Используется как HTTP-хендлерами (значение куки),
+// так и gRPC-сервером (значение metadata authorization).
+func ParseUserID(value string, key []byte) (string, error) {
+	parts := strings.SplitN(value, "|", 2)
 	if len(parts) != 2 {
-		return "", errors.New("invalid cookie format")
+		return "", errors.New("invalid auth format")
 	}
 	userID, sig := parts[0], parts[1]
 	if !verify(userID, sig, key) {

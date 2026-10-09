@@ -1,0 +1,41 @@
+syntax = "proto3";
+
+package shortener;
+
+option go_package = "github.com/Apat1chn1y/go-url-shortener.git/internal/proto;proto";
+
+import "google/protobuf/empty.proto";
+
+service ShortenerService {
+  rpc ShortenURL (URLShortenRequest) returns (URLShortenResponse);
+  rpc ExpandURL (URLExpandRequest) returns (URLExpandResponse);
+  rpc ListUserURLs (google.protobuf.Empty) returns (UserURLsResponse);
+}
+
+message URLShortenRequest {
+  string url = 1;
+}
+
+message URLShortenResponse {
+  string result = 1;
+  // already_exists = true, если URL уже был сокращён ранее.
+  // В этом случае result содержит существующий короткий URL.
+  bool already_exists = 2;
+}
+
+message URLExpandRequest {
+  string id = 1;
+}
+
+message URLExpandResponse {
+  string result = 1;
+}
+
+message UserURLsResponse {
+  repeated URLData url = 1;
+}
+
+message URLData {
+  string short_url = 1;
+  string original_url = 2;
+}

@@ -48,6 +48,12 @@ type Storage interface {
 	// DeleteUserURLs помечает URL как удалённые для данного пользователя.
 	DeleteUserURLs(userID string, ids []string) error
 
+	// CountURLs возвращает общее количество сокращённых URL в хранилище.
+	CountURLs() (int, error)
+
+	// CountUsers возвращает количество уникальных пользователей в хранилище.
+	CountUsers() (int, error)
+
 	// Close корректно завершает работу хранилища: сохраняет данные и освобождает ресурсы.
 	Close() error
 }

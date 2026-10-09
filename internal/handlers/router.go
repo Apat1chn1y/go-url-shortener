@@ -1,13 +1,14 @@
 package handlers
 
 import (
+	"net"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/rs/zerolog"
 )
 
-func NewRouter(h *ShortenHandler, logger zerolog.Logger, authKey []byte) http.Handler {
+func NewRouter(h *ShortenHandler, logger zerolog.Logger, authKey []byte, trustedSubnet *net.IPNet) http.Handler {
 	r := chi.NewRouter()
 	r.Use(GzipMiddleware)
 	r.Use(LoggingMiddleware(logger))
@@ -20,6 +21,9 @@ func NewRouter(h *ShortenHandler, logger zerolog.Logger, authKey []byte) http.Ha
 	r.Get("/ping", h.Ping)
 	r.Get("/api/user/urls", h.GetUserURLs)
 	r.Delete("/api/user/urls", h.DeleteUserURLs)
+
+	// Внутренний эндпоинт, доступный только из доверенной подсети.
+	r.With(InternalOnly(trustedSubnet, logger)).Get("/api/internal/stats", h.GetStats)
 
 	r.NotFound(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Bad Request", http.StatusBadRequest)

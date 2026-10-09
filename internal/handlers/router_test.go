@@ -41,7 +41,7 @@ func TestRouterIntegration(t *testing.T) {
 	mockShortener.EXPECT().GetUserURLs(mock.Anything).Return(nil, nil).Maybe()
 
 	handler := handlers.NewShortenHandler(mockShortener, "http://localhost:8080/", zerolog.Nop(), audit.NewManager())
-	router := handlers.NewRouter(handler, zerolog.Nop(), []byte("test-key"))
+	router := handlers.NewRouter(handler, zerolog.Nop(), []byte("test-key"), nil)
 	ts := httptest.NewServer(router)
 	defer ts.Close()
 
@@ -132,7 +132,7 @@ func TestRouterDeleteIntegration(t *testing.T) {
 	mockShortener.EXPECT().DeleteUserURLs(mock.Anything, []string{"abc123", "def456"}).Return(nil).Maybe()
 
 	handler := handlers.NewShortenHandler(mockShortener, "http://localhost:8080/", zerolog.Nop(), audit.NewManager())
-	router := handlers.NewRouter(handler, zerolog.Nop(), []byte("test-key"))
+	router := handlers.NewRouter(handler, zerolog.Nop(), []byte("test-key"), nil)
 	ts := httptest.NewServer(router)
 	defer ts.Close()
 
